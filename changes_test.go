@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/pkg/idtools"
+	"github.com/moby/sys/user"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/skip"
 )
@@ -424,7 +424,7 @@ func TestApplyLayer(t *testing.T) {
 	changes, err := ChangesDirs(dst, src)
 	assert.NilError(t, err)
 
-	layer, err := ExportChanges(dst, changes, idtools.IdentityMapping{})
+	layer, err := ExportChanges(dst, changes, user.IdentityMapping{})
 	assert.NilError(t, err)
 
 	layerCopy, err := newTempArchive(layer, "")

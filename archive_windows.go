@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/docker/docker/pkg/idtools"
+	"github.com/moby/sys/user"
 )
 
 // longPathPrefix is the longpath prefix for Windows file paths.
@@ -63,7 +63,7 @@ func handleLChmod(hdr *tar.Header, path string, hdrInfo os.FileInfo) error {
 	return nil
 }
 
-func getFileUIDGID(stat interface{}) (idtools.Identity, error) {
+func getFileUIDGID(stat interface{}) (user.Identity, error) {
 	// no notion of file ownership mapping yet on Windows
-	return idtools.Identity{UID: 0, GID: 0}, nil
+	return user.Identity{UID: 0, GID: 0}, nil
 }

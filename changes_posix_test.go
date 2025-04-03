@@ -9,7 +9,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/docker/docker/pkg/idtools"
+	"github.com/moby/sys/user"
 )
 
 func TestHardLinkOrder(t *testing.T) {
@@ -58,7 +58,7 @@ func TestHardLinkOrder(t *testing.T) {
 	sort.Sort(changesByPath(changes))
 
 	// ExportChanges
-	ar, err := ExportChanges(dest, changes, idtools.IdentityMapping{})
+	ar, err := ExportChanges(dest, changes, user.IdentityMapping{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestHardLinkOrder(t *testing.T) {
 	// reverse sort
 	sort.Sort(sort.Reverse(changesByPath(changes)))
 	// ExportChanges
-	arRev, err := ExportChanges(dest, changes, idtools.IdentityMapping{})
+	arRev, err := ExportChanges(dest, changes, user.IdentityMapping{})
 	if err != nil {
 		t.Fatal(err)
 	}

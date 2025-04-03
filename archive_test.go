@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/pkg/idtools"
+	"github.com/moby/sys/user"
 	"github.com/moby/sys/userns"
 	"gotest.tools/v3/assert"
 	is "gotest.tools/v3/assert/cmp"
@@ -727,16 +727,16 @@ func TestTarWithOptionsChownOptsAlwaysOverridesIdPair(t *testing.T) {
 	err := os.WriteFile(filePath, []byte("hello world"), 0o700)
 	assert.NilError(t, err)
 
-	idMaps := []idtools.IDMap{
+	idMaps := []user.IDMap{
 		0: {
-			ContainerID: 0,
-			HostID:      0,
-			Size:        65536,
+			ID:       0,
+			ParentID: 0,
+			Count:    65536,
 		},
 		1: {
-			ContainerID: 0,
-			HostID:      100000,
-			Size:        65536,
+			ID:       0,
+			ParentID: 100000,
+			Count:    65536,
 		},
 	}
 
@@ -745,11 +745,11 @@ func TestTarWithOptionsChownOptsAlwaysOverridesIdPair(t *testing.T) {
 		expectedUID int
 		expectedGID int
 	}{
-		{&TarOptions{ChownOpts: &idtools.Identity{UID: 1337, GID: 42}}, 1337, 42},
-		{&TarOptions{ChownOpts: &idtools.Identity{UID: 100001, GID: 100001}, IDMap: idtools.IdentityMapping{UIDMaps: idMaps, GIDMaps: idMaps}}, 100001, 100001},
-		{&TarOptions{ChownOpts: &idtools.Identity{UID: 0, GID: 0}, NoLchown: false}, 0, 0},
-		{&TarOptions{ChownOpts: &idtools.Identity{UID: 1, GID: 1}, NoLchown: true}, 1, 1},
-		{&TarOptions{ChownOpts: &idtools.Identity{UID: 1000, GID: 1000}, NoLchown: true}, 1000, 1000},
+		{&TarOptions{ChownOpts: &ChownOpts{UID: 1337, GID: 42}}, 1337, 42},
+		{&TarOptions{ChownOpts: &ChownOpts{UID: 100001, GID: 100001}, IDMap: user.IdentityMapping{UIDMaps: idMaps, GIDMaps: idMaps}}, 100001, 100001},
+		{&TarOptions{ChownOpts: &ChownOpts{UID: 0, GID: 0}, NoLchown: false}, 0, 0},
+		{&TarOptions{ChownOpts: &ChownOpts{UID: 1, GID: 1}, NoLchown: true}, 1, 1},
+		{&TarOptions{ChownOpts: &ChownOpts{UID: 1000, GID: 1000}, NoLchown: true}, 1000, 1000},
 	}
 	for _, tc := range tests {
 		t.Run("", func(t *testing.T) {

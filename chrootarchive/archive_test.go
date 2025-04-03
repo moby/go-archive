@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/pkg/idtools"
+	"github.com/moby/sys/user"
 	"gotest.tools/v3/skip"
 
 	"github.com/moby/go-archive"
 )
 
-var chrootArchiver = NewArchiver(idtools.IdentityMapping{})
+var chrootArchiver = NewArchiver(user.IdentityMapping{})
 
 func TarUntar(src, dst string) error {
 	return chrootArchiver.TarUntar(src, dst)
