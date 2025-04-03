@@ -6,8 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/idtools"
+
+	"github.com/moby/go-archive"
 )
 
 // NewArchiver returns a new Archiver which uses chrootarchive.Untar

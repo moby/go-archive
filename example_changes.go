@@ -12,8 +12,9 @@ import (
 	"os"
 	"path"
 
-	"github.com/containerd/log"
-	"github.com/docker/docker/pkg/archive"
+	"github.com/sirupsen/logrus"
+
+	"github.com/moby/go-archive"
 )
 
 var (

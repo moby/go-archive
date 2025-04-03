@@ -12,10 +12,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docker/docker/pkg/archive"
 	"golang.org/x/sys/unix"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/skip"
+
+	"github.com/moby/go-archive"
 )
 
 // Test for CVE-2018-15664
