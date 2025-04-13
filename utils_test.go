@@ -3,6 +3,7 @@ package archive
 import (
 	"archive/tar"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -75,21 +76,21 @@ func testBreakout(untarFn string, tmpdir string, headers []*tar.Header) error {
 		return fmt.Errorf("could not find untar function %q in testUntarFns", untarFn)
 	}
 	if err := untar(dest, reader); err != nil {
-		if _, ok := err.(breakoutError); !ok {
+		if !errors.As(err, new(breakoutError)) {
 			// If untar returns an error unrelated to an archive breakout,
 			// then consider this an unexpected error and abort.
 			return err
 		}
 		// Here, untar detected the breakout.
 		// Let's move on verifying that indeed there was no breakout.
-		fmt.Printf("breakoutError: %v\n", err)
+		fmt.Println("breakoutError:", err)
 	}
 
 	// Check victim folder
 	f, err := os.Open(victim)
 	if err != nil {
 		// codepath taken if victim folder was removed
-		return fmt.Errorf("archive breakout: error reading %q: %v", victim, err)
+		return fmt.Errorf("archive breakout: error reading %q: %w", victim, err)
 	}
 	defer f.Close()
 
@@ -102,7 +103,7 @@ func testBreakout(untarFn string, tmpdir string, headers []*tar.Header) error {
 	names, err := f.Readdirnames(2)
 	if err != nil {
 		// codepath taken if victim is not a folder
-		return fmt.Errorf("archive breakout: error reading directory content of %q: %v", victim, err)
+		return fmt.Errorf("archive breakout: error reading directory content of %q: %w", victim, err)
 	}
 	for _, name := range names {
 		if name != "hello" {
@@ -115,7 +116,7 @@ func testBreakout(untarFn string, tmpdir string, headers []*tar.Header) error {
 	f, err = os.Open(hello)
 	if err != nil {
 		// codepath taken if read permissions were removed
-		return fmt.Errorf("archive breakout: could not lstat %q: %v", hello, err)
+		return fmt.Errorf("archive breakout: could not lstat %q: %w", hello, err)
 	}
 	defer f.Close()
 	b, err := io.ReadAll(f)

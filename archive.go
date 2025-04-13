@@ -260,7 +260,7 @@ func (r *bufferedReader) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	n, err := r.buf.Read(p)
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		r.buf.Reset(nil)
 		bufioReader32KPool.Put(r.buf)
 		r.buf = nil
@@ -279,7 +279,7 @@ func (r *bufferedReader) Peek(n int) ([]byte, error) {
 func DecompressStream(archive io.Reader) (io.ReadCloser, error) {
 	buf := newBufferedReader(archive)
 	bs, err := buf.Peek(10)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		// Note: we'll ignore any io.EOF error because there are some odd
 		// cases where the layer.tar file will be empty (zero bytes) and
 		// that results in an io.EOF from the Peek() call. So, in those
@@ -416,7 +416,7 @@ func ReplaceFileTarWrapper(inputTarStream io.ReadCloser, mods map[string]TarModi
 		var originalHeader *tar.Header
 		for {
 			originalHeader, err = tarReader.Next()
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			if err != nil {
@@ -1135,7 +1135,7 @@ func (t *Tarballer) Do() {
 			if err := ta.addTarFile(filePath, relFilePath); err != nil {
 				log.G(context.TODO()).Errorf("Can't add file %s to tar: %s", filePath, err)
 				// if pipe is broken, stop writing tar stream to it
-				if err == io.ErrClosedPipe {
+				if errors.Is(err, io.ErrClosedPipe) {
 					return err
 				}
 			}
@@ -1155,7 +1155,7 @@ func Unpack(decompressedArchive io.Reader, dest string, options *TarOptions) err
 loop:
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// end of tar archive
 			break
 		}
@@ -1492,9 +1492,9 @@ func cmdStream(cmd *exec.Cmd, input io.Reader) (io.ReadCloser, error) {
 	// Copy stdout to the returned pipe
 	go func() {
 		if err := cmd.Wait(); err != nil {
-			pipeW.CloseWithError(fmt.Errorf("%s: %s", err, errBuf.String()))
+			_ = pipeW.CloseWithError(fmt.Errorf("%w: %s", err, errBuf.String()))
 		} else {
-			pipeW.Close()
+			_ = pipeW.Close()
 		}
 		close(done)
 	}()

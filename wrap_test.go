@@ -3,6 +3,7 @@ package archive
 import (
 	"archive/tar"
 	"bytes"
+	"errors"
 	"io"
 	"testing"
 
@@ -25,7 +26,7 @@ func TestGenerateEmptyFile(t *testing.T) {
 	i := 0
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		assert.NilError(t, err)
@@ -66,7 +67,7 @@ func TestGenerateWithContent(t *testing.T) {
 	i := 0
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		assert.NilError(t, err)

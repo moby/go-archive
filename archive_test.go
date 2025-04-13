@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -766,7 +767,7 @@ func TestTarWithOptionsChownOptsAlwaysOverridesIdPair(t *testing.T) {
 			defer reader.Close()
 			for {
 				hdr, err := tr.Next()
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					// end of tar archive
 					break
 				}
@@ -838,7 +839,7 @@ func TestUntarUstarGnuConflict(t *testing.T) {
 	// Iterate through the files in the archive.
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// end of tar archive
 			break
 		}

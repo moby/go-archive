@@ -3,6 +3,7 @@ package archive
 import (
 	"archive/tar"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,7 +36,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 	// Iterate through the files in the archive.
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// end of tar archive
 			break
 		}
@@ -223,16 +224,16 @@ func ApplyUncompressedLayer(dest string, layer io.Reader, options *TarOptions) (
 func IsEmpty(rd io.Reader) (bool, error) {
 	decompRd, err := DecompressStream(rd)
 	if err != nil {
-		return true, fmt.Errorf("failed to decompress archive: %v", err)
+		return true, fmt.Errorf("failed to decompress archive: %w", err)
 	}
 	defer decompRd.Close()
 
 	tarReader := tar.NewReader(decompRd)
 	if _, err := tarReader.Next(); err != nil {
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return true, nil
 		}
-		return false, fmt.Errorf("failed to read next archive header: %v", err)
+		return false, fmt.Errorf("failed to read next archive header: %w", err)
 	}
 
 	return false, nil

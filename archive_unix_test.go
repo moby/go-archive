@@ -5,6 +5,7 @@ package archive
 import (
 	"archive/tar"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -259,7 +260,7 @@ func TestTarUntarWithXattr(t *testing.T) {
 	rdr := tar.NewReader(tarball)
 	for {
 		h, err := rdr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		assert.NilError(t, err)

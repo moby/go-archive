@@ -3,6 +3,7 @@ package archive
 import (
 	"archive/tar"
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -119,7 +120,7 @@ func TestOverlayTarUntar(t *testing.T) {
 	rdr := tar.NewReader(bytes.NewReader(archive))
 	for {
 		h, err := rdr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		assert.NilError(t, err)

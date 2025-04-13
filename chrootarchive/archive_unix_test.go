@@ -5,6 +5,7 @@ package chrootarchive
 import (
 	gotar "archive/tar"
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path"
@@ -152,7 +153,7 @@ func TestTarWithMaliciousSymlinks(t *testing.T) {
 func isDataInTar(t *testing.T, tr *gotar.Reader, compare []byte, maxBytes int64) bool {
 	for {
 		h, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		assert.NilError(t, err)

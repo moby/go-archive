@@ -1,6 +1,7 @@
 package archive
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path"
@@ -34,8 +35,9 @@ func copyDir(src, dst string) error {
 	// Use robocopy instead. Note this isn't available in microsoft/nanoserver.
 	// But it has gotchas. See https://weblogs.sqlteam.com/robv/archive/2010/02/17/61106.aspx
 	err := exec.Command("robocopy", filepath.FromSlash(src), filepath.FromSlash(dst), "/SL", "/COPYALL", "/MIR").Run()
-	if exiterr, ok := err.(*exec.ExitError); ok {
-		if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) {
+		if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
 			if status.ExitStatus()&24 == 0 {
 				return nil
 			}
