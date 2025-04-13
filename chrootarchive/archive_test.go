@@ -125,7 +125,9 @@ func getHash(filename string) (uint32, error) {
 		return 0, err
 	}
 	hash := crc32.NewIEEE()
-	hash.Write(stream)
+	if _, err := hash.Write(stream); err != nil {
+		return 0, err
+	}
 	return hash.Sum32(), nil
 }
 
@@ -282,7 +284,9 @@ func TestChrootUntarPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	buf := new(bytes.Buffer)
-	buf.ReadFrom(stream)
+	if _, err := buf.ReadFrom(stream); err != nil {
+		t.Fatal(err)
+	}
 	tarfile := filepath.Join(tmpdir, "src.tar")
 	if err := os.WriteFile(tarfile, buf.Bytes(), 0o644); err != nil {
 		t.Fatal(err)

@@ -66,9 +66,9 @@ func testBreakout(untarFn string, tmpdir string, headers []*tar.Header) error {
 	go func() {
 		t := tar.NewWriter(writer)
 		for _, hdr := range headers {
-			t.WriteHeader(hdr)
+			_ = t.WriteHeader(hdr)
 		}
-		t.Close()
+		_ = t.Close()
 	}()
 
 	untar := testUntarFns[untarFn]

@@ -150,7 +150,7 @@ func TestChangesWithChanges(t *testing.T) {
 	assert.NilError(t, err)
 	defer os.RemoveAll(layer)
 	createSampleDir(t, layer)
-	os.MkdirAll(path.Join(layer, "dir1/subfolder"), 0o740)
+	assert.NilError(t, os.MkdirAll(path.Join(layer, "dir1/subfolder"), 0o740))
 
 	// Mock the RW layer
 	rwLayer, err := os.MkdirTemp("", "docker-changes-test")
@@ -159,16 +159,16 @@ func TestChangesWithChanges(t *testing.T) {
 
 	// Create a folder in RW layer
 	dir1 := path.Join(rwLayer, "dir1")
-	os.MkdirAll(dir1, 0o740)
+	assert.NilError(t, os.MkdirAll(dir1, 0o740))
 	deletedFile := path.Join(dir1, ".wh.file1-2")
-	os.WriteFile(deletedFile, []byte{}, 0o600)
+	assert.NilError(t, os.WriteFile(deletedFile, []byte{}, 0o600))
 	modifiedFile := path.Join(dir1, "file1-1")
-	os.WriteFile(modifiedFile, []byte{0x00}, 0o1444)
+	assert.NilError(t, os.WriteFile(modifiedFile, []byte{0x00}, 0o1444))
 	// Let's add a subfolder for a newFile
 	subfolder := path.Join(dir1, "subfolder")
-	os.MkdirAll(subfolder, 0o740)
+	assert.NilError(t, os.MkdirAll(subfolder, 0o740))
 	newFile := path.Join(subfolder, "newFile")
-	os.WriteFile(newFile, []byte{}, 0o740)
+	assert.NilError(t, os.WriteFile(newFile, []byte{}, 0o740))
 
 	changes, err := Changes([]string{layer}, rwLayer)
 	assert.NilError(t, err)
@@ -194,10 +194,10 @@ func TestChangesWithChangesGH13590(t *testing.T) {
 	defer os.RemoveAll(baseLayer)
 
 	dir3 := path.Join(baseLayer, "dir1/dir2/dir3")
-	os.MkdirAll(dir3, 0o740)
+	assert.NilError(t, os.MkdirAll(dir3, 0o740))
 
 	file := path.Join(dir3, "file.txt")
-	os.WriteFile(file, []byte("hello"), 0o666)
+	assert.NilError(t, os.WriteFile(file, []byte("hello"), 0o666))
 
 	layer, err := os.MkdirTemp("", "docker-changes-test2.")
 	assert.NilError(t, err)
@@ -208,9 +208,9 @@ func TestChangesWithChangesGH13590(t *testing.T) {
 		t.Fatalf("Cmd failed: %q", err)
 	}
 
-	os.Remove(path.Join(layer, "dir1/dir2/dir3/file.txt"))
+	assert.NilError(t, os.Remove(path.Join(layer, "dir1/dir2/dir3/file.txt")))
 	file = path.Join(layer, "dir1/dir2/dir3/file1.txt")
-	os.WriteFile(file, []byte("bye"), 0o666)
+	assert.NilError(t, os.WriteFile(file, []byte("bye"), 0o666))
 
 	changes, err := Changes([]string{baseLayer}, layer)
 	assert.NilError(t, err)
@@ -231,7 +231,7 @@ func TestChangesWithChangesGH13590(t *testing.T) {
 	}
 
 	file = path.Join(layer, "dir1/dir2/dir3/file.txt")
-	os.WriteFile(file, []byte("bye"), 0o666)
+	assert.NilError(t, os.WriteFile(file, []byte("bye"), 0o666))
 
 	changes, err = Changes([]string{baseLayer}, layer)
 	assert.NilError(t, err)
@@ -262,8 +262,8 @@ func TestChangesDirsEmpty(t *testing.T) {
 	if len(changes) != 0 {
 		t.Fatalf("Reported changes for identical dirs: %v", changes)
 	}
-	os.RemoveAll(src)
-	os.RemoveAll(dst)
+	assert.NilError(t, os.RemoveAll(src))
+	assert.NilError(t, os.RemoveAll(dst))
 }
 
 func mutateSampleDir(t *testing.T, root string) {
@@ -340,8 +340,10 @@ func TestChangesDirsMutated(t *testing.T) {
 	dst := src + "-copy"
 	err = copyDir(src, dst)
 	assert.NilError(t, err)
-	defer os.RemoveAll(src)
-	defer os.RemoveAll(dst)
+	defer func() {
+		_ = os.RemoveAll(dst)
+		_ = os.RemoveAll(src)
+	}()
 
 	mutateSampleDir(t, dst)
 

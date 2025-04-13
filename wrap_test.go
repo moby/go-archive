@@ -31,7 +31,8 @@ func TestGenerateEmptyFile(t *testing.T) {
 		}
 		assert.NilError(t, err)
 		buf := new(bytes.Buffer)
-		buf.ReadFrom(tr)
+		_, err = buf.ReadFrom(tr)
+		assert.NilError(t, err)
 		content := buf.String()
 		actualFiles = append(actualFiles, []string{hdr.Name, content})
 		i++
@@ -72,7 +73,8 @@ func TestGenerateWithContent(t *testing.T) {
 		}
 		assert.NilError(t, err)
 		buf := new(bytes.Buffer)
-		buf.ReadFrom(tr)
+		_, err = buf.ReadFrom(tr)
+		assert.NilError(t, err)
 		content := buf.String()
 		actualFiles = append(actualFiles, []string{hdr.Name, content})
 		i++

@@ -27,7 +27,7 @@ func FuzzUntar(f *testing.F) {
 			return
 		}
 		tmpDir := t.TempDir()
-		Untar(bytes.NewReader(tarBytes), tmpDir, options)
+		_ = Untar(bytes.NewReader(tarBytes), tmpDir, options)
 	})
 }
 

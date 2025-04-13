@@ -480,22 +480,20 @@ func TestCopyWithTarSrcFile(t *testing.T) {
 	dest := filepath.Join(folder, "dest")
 	srcFolder := filepath.Join(folder, "src")
 	src := filepath.Join(folder, filepath.Join("src", "src"))
-	err := os.MkdirAll(srcFolder, 0o740)
-	if err != nil {
+	if err := os.MkdirAll(srcFolder, 0o740); err != nil {
 		t.Fatal(err)
 	}
-	err = os.MkdirAll(dest, 0o740)
-	if err != nil {
+	if err := os.MkdirAll(dest, 0o740); err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(src, []byte("content"), 0o777)
-	err = defaultCopyWithTar(src, dest)
-	if err != nil {
+	if err := os.WriteFile(src, []byte("content"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := defaultCopyWithTar(src, dest); err != nil {
 		t.Fatalf("archiver.CopyWithTar shouldn't throw an error, %s.", err)
 	}
-	_, err = os.Stat(dest)
 	// FIXME Check the content
-	if err != nil {
+	if _, err := os.Stat(dest); err != nil {
 		t.Fatalf("Destination file should be the same as the source.")
 	}
 }
@@ -505,22 +503,20 @@ func TestCopyWithTarSrcFolder(t *testing.T) {
 	folder := t.TempDir()
 	dest := filepath.Join(folder, "dest")
 	src := filepath.Join(folder, filepath.Join("src", "folder"))
-	err := os.MkdirAll(src, 0o740)
-	if err != nil {
+	if err := os.MkdirAll(src, 0o740); err != nil {
 		t.Fatal(err)
 	}
-	err = os.MkdirAll(dest, 0o740)
-	if err != nil {
+	if err := os.MkdirAll(dest, 0o740); err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(filepath.Join(src, "file"), []byte("content"), 0o777)
-	err = defaultCopyWithTar(src, dest)
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(src, "file"), []byte("content"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := defaultCopyWithTar(src, dest); err != nil {
 		t.Fatalf("archiver.CopyWithTar shouldn't throw an error, %s.", err)
 	}
-	_, err = os.Stat(dest)
 	// FIXME Check the content (the file inside)
-	if err != nil {
+	if _, err := os.Stat(dest); err != nil {
 		t.Fatalf("Destination folder should contain the source file but did not.")
 	}
 }
@@ -581,21 +577,19 @@ func TestCopyFileWithTarSrcFile(t *testing.T) {
 	dest := filepath.Join(folder, "dest")
 	srcFolder := filepath.Join(folder, "src")
 	src := filepath.Join(folder, filepath.Join("src", "src"))
-	err := os.MkdirAll(srcFolder, 0o740)
-	if err != nil {
+	if err := os.MkdirAll(srcFolder, 0o740); err != nil {
 		t.Fatal(err)
 	}
-	err = os.MkdirAll(dest, 0o740)
-	if err != nil {
+	if err := os.MkdirAll(dest, 0o740); err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(src, []byte("content"), 0o777)
-	err = defaultCopyWithTar(src, dest+"/")
-	if err != nil {
+	if err := os.WriteFile(src, []byte("content"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := defaultCopyWithTar(src, dest+"/"); err != nil {
 		t.Fatalf("archiver.CopyFileWithTar shouldn't throw an error, %s.", err)
 	}
-	_, err = os.Stat(dest)
-	if err != nil {
+	if _, err := os.Stat(dest); err != nil {
 		t.Fatalf("Destination folder should contain the source file but did not.")
 	}
 }
