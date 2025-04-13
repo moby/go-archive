@@ -1182,6 +1182,7 @@ func TestXGlobalNoParent(t *testing.T) {
 // header entries are created recursively with the default mode (permissions) stored in ImpliedDirectoryMode. This test
 // also verifies that the permissions of explicit directories are respected.
 func TestImpliedDirectoryPermissions(t *testing.T) {
+	skip.If(t, os.Getuid() != 0, "skipping test that requires root")
 	skip.If(t, runtime.GOOS == "windows", "skipping test that requires Unix permissions")
 
 	buf := &bytes.Buffer{}
