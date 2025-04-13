@@ -166,7 +166,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 				linkBasename := filepath.Base(hdr.Linkname)
 				srcHdr = aufsHardlinks[linkBasename]
 				if srcHdr == nil {
-					return 0, fmt.Errorf("Invalid aufs hardlink")
+					return 0, errors.New("invalid aufs hardlink")
 				}
 				tmpFile, err := os.Open(filepath.Join(aufsTempdir, linkBasename))
 				if err != nil {

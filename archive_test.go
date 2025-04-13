@@ -650,9 +650,9 @@ func tarUntar(t *testing.T, origin string, options *TarOptions) ([]Change, error
 	wrap := io.MultiReader(bytes.NewReader(buf), archive)
 
 	detectedCompression := DetectCompression(buf)
-	compression := options.Compression
-	if detectedCompression.Extension() != compression.Extension() {
-		return nil, fmt.Errorf("Wrong compression detected. Actual compression: %s, found %s", compression.Extension(), detectedCompression.Extension())
+	expected := options.Compression
+	if detectedCompression.Extension() != expected.Extension() {
+		return nil, fmt.Errorf("wrong compression detected; expected: %s, got: %s", expected.Extension(), detectedCompression.Extension())
 	}
 
 	tmp := t.TempDir()
