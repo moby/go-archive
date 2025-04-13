@@ -1031,7 +1031,8 @@ func (t *Tarballer) Do() {
 		)
 
 		walkRoot := getWalkRoot(t.srcPath, include)
-		filepath.WalkDir(walkRoot, func(filePath string, f os.DirEntry, err error) error {
+		// TODO(thaJeztah): should this error be handled?
+		_ = filepath.WalkDir(walkRoot, func(filePath string, f os.DirEntry, err error) error {
 			if err != nil {
 				log.G(context.TODO()).Errorf("Tar: Can't stat file %s to tar: %s", t.srcPath, err)
 				return nil
