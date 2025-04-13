@@ -102,21 +102,21 @@ func TestChrootUntarEmptyArchive(t *testing.T) {
 	}
 }
 
-func prepareSourceDirectory(numberOfFiles int, targetPath string, makeSymLinks bool) (int, error) {
+func prepareSourceDirectory(targetPath string, makeSymLinks bool) error {
 	fileData := []byte("fooo")
+	numberOfFiles := 10
 	for n := 0; n < numberOfFiles; n++ {
 		fileName := fmt.Sprintf("file-%d", n)
 		if err := os.WriteFile(filepath.Join(targetPath, fileName), fileData, 0o700); err != nil {
-			return 0, err
+			return err
 		}
 		if makeSymLinks {
 			if err := os.Symlink(filepath.Join(targetPath, fileName), filepath.Join(targetPath, fileName+"-link")); err != nil {
-				return 0, err
+				return err
 			}
 		}
 	}
-	totalSize := numberOfFiles * len(fileData)
-	return totalSize, nil
+	return nil
 }
 
 func getHash(filename string) (uint32, error) {
@@ -165,7 +165,7 @@ func TestChrootTarUntarWithSymlink(t *testing.T) {
 	if err := os.Mkdir(src, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepareSourceDirectory(10, src, false); err != nil {
+	if err := prepareSourceDirectory(src, false); err != nil {
 		t.Fatal(err)
 	}
 	dest := filepath.Join(tmpdir, "dest")
@@ -185,7 +185,7 @@ func TestChrootCopyWithTar(t *testing.T) {
 	if err := os.Mkdir(src, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepareSourceDirectory(10, src, true); err != nil {
+	if err := prepareSourceDirectory(src, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -228,7 +228,7 @@ func TestChrootCopyFileWithTar(t *testing.T) {
 	if err := os.Mkdir(src, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepareSourceDirectory(10, src, true); err != nil {
+	if err := prepareSourceDirectory(src, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -269,7 +269,7 @@ func TestChrootUntarPath(t *testing.T) {
 	if err := os.Mkdir(src, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepareSourceDirectory(10, src, false); err != nil {
+	if err := prepareSourceDirectory(src, false); err != nil {
 		t.Fatal(err)
 	}
 	dest := filepath.Join(tmpdir, "dest")
