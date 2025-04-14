@@ -132,18 +132,6 @@ func DetectCompression(source []byte) compression.Compression {
 	return compression.Detect(source)
 }
 
-type readCloserWrapper struct {
-	io.Reader
-	closer func() error
-}
-
-func (r *readCloserWrapper) Close() error {
-	if r.closer != nil {
-		return r.closer()
-	}
-	return nil
-}
-
 // DecompressStream decompresses the archive and returns a ReaderCloser with the decompressed archive.
 //
 // Deprecated: use [compression.DecompressStream].
