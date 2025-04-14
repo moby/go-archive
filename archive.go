@@ -476,9 +476,7 @@ func (compression *Compression) Extension() string {
 }
 
 // assert that we implement [tar.FileInfoNames].
-//
-// TODO(thaJeztah): disabled to allow compiling on < go1.23. un-comment once we drop support for older versions of go.
-// var _ tar.FileInfoNames = (*nosysFileInfo)(nil)
+var _ tar.FileInfoNames = (*nosysFileInfo)(nil)
 
 // nosysFileInfo hides the system-dependent info of the wrapped FileInfo to
 // prevent tar.FileInfoHeader from introspecting it and potentially calling into
