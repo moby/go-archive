@@ -20,6 +20,8 @@ import (
 	"gotest.tools/v3/assert"
 	is "gotest.tools/v3/assert/cmp"
 	"gotest.tools/v3/skip"
+
+	"github.com/moby/go-archive/compression"
 )
 
 func TestCanonicalTarName(t *testing.T) {
@@ -82,7 +84,7 @@ func TestTarWithHardLink(t *testing.T) {
 	defer os.RemoveAll(dest)
 
 	// we'll do this in two steps to separate failure
-	fh, err := Tar(origin, Uncompressed)
+	fh, err := Tar(origin, compression.None)
 	assert.NilError(t, err)
 
 	// ensure we can read the whole thing with no error, before writing back out
@@ -211,7 +213,7 @@ func TestTarWithBlockCharFifo(t *testing.T) {
 	defer os.RemoveAll(dest)
 
 	// we'll do this in two steps to separate failure
-	fh, err := Tar(origin, Uncompressed)
+	fh, err := Tar(origin, compression.None)
 	assert.NilError(t, err)
 
 	// ensure we can read the whole thing with no error, before writing back out
@@ -254,7 +256,7 @@ func TestTarUntarWithXattr(t *testing.T) {
 	out, err := exec.Command("setcap", "cap_block_suspend+ep", filepath.Join(origin, "2")).CombinedOutput()
 	assert.NilError(t, err, string(out))
 
-	tarball, err := Tar(origin, Uncompressed)
+	tarball, err := Tar(origin, compression.None)
 	assert.NilError(t, err)
 	defer tarball.Close()
 	rdr := tar.NewReader(tarball)
@@ -275,9 +277,9 @@ func TestTarUntarWithXattr(t *testing.T) {
 		}
 	}
 
-	for _, c := range []Compression{
-		Uncompressed,
-		Gzip,
+	for _, c := range []compression.Compression{
+		compression.None,
+		compression.Gzip,
 	} {
 		changes, err := tarUntar(t, origin, &TarOptions{
 			Compression:     c,

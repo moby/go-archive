@@ -22,6 +22,8 @@ import (
 	"gotest.tools/v3/assert"
 	is "gotest.tools/v3/assert/cmp"
 	"gotest.tools/v3/skip"
+
+	"github.com/moby/go-archive/compression"
 )
 
 var defaultArchiver = NewDefaultArchiver()
@@ -170,7 +172,7 @@ func TestCompressStreamXzUnsupported(t *testing.T) {
 	}
 	defer dest.Close()
 
-	_, err = CompressStream(dest, Xz)
+	_, err = CompressStream(dest, compression.Xz)
 	if err == nil {
 		t.Fatalf("Should fail as xz is unsupported for compression format.")
 	}
@@ -183,7 +185,7 @@ func TestCompressStreamBzip2Unsupported(t *testing.T) {
 	}
 	defer dest.Close()
 
-	_, err = CompressStream(dest, Bzip2)
+	_, err = CompressStream(dest, compression.Bzip2)
 	if err == nil {
 		t.Fatalf("Should fail as bzip2 is unsupported for compression format.")
 	}
@@ -199,25 +201,6 @@ func TestCompressStreamInvalid(t *testing.T) {
 	_, err = CompressStream(dest, -1)
 	if err == nil {
 		t.Fatalf("Should fail as xz is unsupported for compression format.")
-	}
-}
-
-func TestExtension(t *testing.T) {
-	tests := []struct {
-		compression Compression
-		extension   string
-	}{
-		{compression: -1, extension: ""},
-		{compression: Uncompressed, extension: "tar"},
-		{compression: Bzip2, extension: "tar.bz2"},
-		{compression: Gzip, extension: "tar.gz"},
-		{compression: Xz, extension: "tar.xz"},
-		{compression: Zstd, extension: "tar.zst"},
-	}
-	for _, tc := range tests {
-		if actual := tc.compression.Extension(); actual != tc.extension {
-			t.Errorf("expected %s extension got %s", tc.extension, actual)
-		}
 	}
 }
 
@@ -620,7 +603,7 @@ func tarUntar(t *testing.T, origin string, options *TarOptions) ([]Change, error
 	}
 	wrap := io.MultiReader(bytes.NewReader(buf), archive)
 
-	detectedCompression := DetectCompression(buf)
+	detectedCompression := compression.Detect(buf)
 	expected := options.Compression
 	if detectedCompression.Extension() != expected.Extension() {
 		return nil, fmt.Errorf("wrong compression detected; expected: %s, got: %s", expected.Extension(), detectedCompression.Extension())
@@ -637,34 +620,6 @@ func tarUntar(t *testing.T, origin string, options *TarOptions) ([]Change, error
 	return ChangesDirs(origin, tmp)
 }
 
-func TestDetectCompressionZstd(t *testing.T) {
-	// test zstd compression without skippable frames.
-	compressedData := []byte{
-		0x28, 0xb5, 0x2f, 0xfd, // magic number of Zstandard frame: 0xFD2FB528
-		0x04, 0x00, 0x31, 0x00, 0x00, // frame header
-		0x64, 0x6f, 0x63, 0x6b, 0x65, 0x72, // data block "docker"
-		0x16, 0x0e, 0x21, 0xc3, // content checksum
-	}
-	compression := DetectCompression(compressedData)
-	if compression != Zstd {
-		t.Fatal("Unexpected compression")
-	}
-	// test zstd compression with skippable frames.
-	hex := []byte{
-		0x50, 0x2a, 0x4d, 0x18, // magic number of skippable frame: 0x184D2A50 to 0x184D2A5F
-		0x04, 0x00, 0x00, 0x00, // frame size
-		0x5d, 0x00, 0x00, 0x00, // user data
-		0x28, 0xb5, 0x2f, 0xfd, // magic number of Zstandard frame: 0xFD2FB528
-		0x04, 0x00, 0x31, 0x00, 0x00, // frame header
-		0x64, 0x6f, 0x63, 0x6b, 0x65, 0x72, // data block "docker"
-		0x16, 0x0e, 0x21, 0xc3, // content checksum
-	}
-	compression = DetectCompression(hex)
-	if compression != Zstd {
-		t.Fatal("Unexpected compression")
-	}
-}
-
 func TestTarUntar(t *testing.T) {
 	origin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(origin, "1"), []byte("hello world"), 0o700); err != nil {
@@ -677,9 +632,9 @@ func TestTarUntar(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, c := range []Compression{
-		Uncompressed,
-		Gzip,
+	for _, c := range []compression.Compression{
+		compression.None,
+		compression.Gzip,
 	} {
 		changes, err := tarUntar(t, origin, &TarOptions{
 			Compression:     c,
