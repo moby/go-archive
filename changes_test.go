@@ -195,7 +195,7 @@ func TestChangesWithChangesGH13590(t *testing.T) {
 	defer os.RemoveAll(baseLayer)
 
 	dir3 := path.Join(baseLayer, "dir1/dir2/dir3")
-	os.MkdirAll(dir3, 0o7400)
+	os.MkdirAll(dir3, 0o740)
 
 	file := path.Join(dir3, "file.txt")
 	os.WriteFile(file, []byte("hello"), 0o666)
