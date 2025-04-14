@@ -16,11 +16,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -223,18 +221,9 @@ func gzDecompress(ctx context.Context, buf io.Reader) (io.ReadCloser, error) {
 type readCloserWrapper struct {
 	io.Reader
 	closer func() error
-	closed atomic.Bool
 }
 
 func (r *readCloserWrapper) Close() error {
-	if !r.closed.CompareAndSwap(false, true) {
-		log.G(context.TODO()).Error("subsequent attempt to close readCloserWrapper")
-		if log.GetLevel() >= log.DebugLevel {
-			log.G(context.TODO()).Errorf("stack trace: %s", string(debug.Stack()))
-		}
-
-		return nil
-	}
 	if r.closer != nil {
 		return r.closer()
 	}
