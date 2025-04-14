@@ -90,7 +90,7 @@ func TestTarWithHardLink(t *testing.T) {
 	assert.NilError(t, err)
 
 	bRdr := bytes.NewReader(buf)
-	err = Untar(bRdr, dest, &TarOptions{Compression: Uncompressed})
+	err = Untar(bRdr, dest, nil)
 	assert.NilError(t, err)
 
 	i1, err = getInode(filepath.Join(dest, "1"))
@@ -133,7 +133,7 @@ func TestTarWithHardLinkAndRebase(t *testing.T) {
 	dstDir, srcBase := SplitPathDirEntry(origin)
 	_, dstBase := SplitPathDirEntry(dest)
 	content := RebaseArchiveEntries(bRdr, srcBase, dstBase)
-	err = Untar(content, dstDir, &TarOptions{Compression: Uncompressed, NoLchown: true, NoOverwriteDirNonDir: true})
+	err = Untar(content, dstDir, &TarOptions{NoLchown: true, NoOverwriteDirNonDir: true})
 	assert.NilError(t, err)
 
 	i1, err = getInode(filepath.Join(dest, "1"))
@@ -219,7 +219,7 @@ func TestTarWithBlockCharFifo(t *testing.T) {
 	assert.NilError(t, err)
 
 	bRdr := bytes.NewReader(buf)
-	err = Untar(bRdr, dest, &TarOptions{Compression: Uncompressed})
+	err = Untar(bRdr, dest, nil)
 	assert.NilError(t, err)
 
 	changes, err := ChangesDirs(origin, dest)

@@ -105,7 +105,6 @@ func TestOverlayTarUntar(t *testing.T) {
 	defer os.RemoveAll(dst)
 
 	options := &TarOptions{
-		Compression:    Uncompressed,
 		WhiteoutFormat: OverlayWhiteoutFormat,
 	}
 	reader, err := TarWithOptions(src, options)
@@ -171,14 +170,12 @@ func TestOverlayTarAUFSUntar(t *testing.T) {
 	defer os.RemoveAll(dst)
 
 	archive, err := TarWithOptions(src, &TarOptions{
-		Compression:    Uncompressed,
 		WhiteoutFormat: OverlayWhiteoutFormat,
 	})
 	assert.NilError(t, err)
 	defer archive.Close()
 
 	err = Untar(archive, dst, &TarOptions{
-		Compression:    Uncompressed,
 		WhiteoutFormat: AUFSWhiteoutFormat,
 	})
 	assert.NilError(t, err)
