@@ -3,7 +3,6 @@ package archive
 import (
 	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
@@ -11,11 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/moby/sys/user"
 	"github.com/moby/sys/userns"
@@ -103,157 +100,6 @@ func TestIsArchivePathTar(t *testing.T) {
 	}
 	if !IsArchivePath(filepath.Join(tmp, "archive.gz")) {
 		t.Fatalf("Did not recognise valid compressed tar path as archive")
-	}
-}
-
-func testDecompressStream(t *testing.T, ext, compressCommand string) io.Reader {
-	tmp := t.TempDir()
-	archivePath := toUnixPath(filepath.Join(tmp, "archive"))
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("touch %[1]s && %[2]s %[1]s", archivePath, compressCommand))
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to create archive file (%v):\ncommand: %s\noutput: %s", err, cmd.String(), output)
-	}
-	filename := "archive." + ext
-	archive, err := os.Open(filepath.Join(tmp, filename))
-	if err != nil {
-		t.Fatalf("Failed to open file %s: %v", filename, err)
-	}
-	defer archive.Close()
-
-	r, err := DecompressStream(archive)
-	if err != nil {
-		t.Fatalf("Failed to decompress %s: %v", filename, err)
-	}
-	if _, err = io.ReadAll(r); err != nil {
-		t.Fatalf("Failed to read the decompressed stream: %v ", err)
-	}
-	if err = r.Close(); err != nil {
-		t.Fatalf("Failed to close the decompressed stream: %v ", err)
-	}
-
-	return r
-}
-
-func TestDecompressStreamGzip(t *testing.T) {
-	testDecompressStream(t, "gz", "gzip -f")
-}
-
-func TestDecompressStreamBzip2(t *testing.T) {
-	// TODO Windows: Failing with "bzip2.exe: Can't open input file (...)/archive: No such file or directory."
-	if runtime.GOOS == "windows" {
-		t.Skip("Failing on Windows CI machines")
-	}
-	testDecompressStream(t, "bz2", "bzip2 -f")
-}
-
-func TestDecompressStreamXz(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Xz not present in msys2")
-	}
-	testDecompressStream(t, "xz", "xz -f")
-}
-
-func TestDecompressStreamZstd(t *testing.T) {
-	// TODO Windows: Failing with "zstd: can't stat (...)/archive : No such file or directory -- ignored"
-	if runtime.GOOS == "windows" {
-		t.Skip("Failing on Windows CI machines")
-	}
-	if _, err := exec.LookPath("zstd"); err != nil {
-		t.Skip("zstd not installed")
-	}
-	testDecompressStream(t, "zst", "zstd -f")
-}
-
-func TestCompressStreamXzUnsupported(t *testing.T) {
-	dest, err := os.Create(filepath.Join(t.TempDir(), "dest"))
-	if err != nil {
-		t.Fatalf("Fail to create the destination file")
-	}
-	defer dest.Close()
-
-	_, err = CompressStream(dest, compression.Xz)
-	if err == nil {
-		t.Fatalf("Should fail as xz is unsupported for compression format.")
-	}
-}
-
-func TestCompressStreamBzip2Unsupported(t *testing.T) {
-	dest, err := os.Create(filepath.Join(t.TempDir(), "dest"))
-	if err != nil {
-		t.Fatalf("Fail to create the destination file")
-	}
-	defer dest.Close()
-
-	_, err = CompressStream(dest, compression.Bzip2)
-	if err == nil {
-		t.Fatalf("Should fail as bzip2 is unsupported for compression format.")
-	}
-}
-
-func TestCompressStreamInvalid(t *testing.T) {
-	dest, err := os.Create(filepath.Join(t.TempDir(), "dest"))
-	if err != nil {
-		t.Fatalf("Fail to create the destination file")
-	}
-	defer dest.Close()
-
-	_, err = CompressStream(dest, -1)
-	if err == nil {
-		t.Fatalf("Should fail as xz is unsupported for compression format.")
-	}
-}
-
-func TestCmdStreamLargeStderr(t *testing.T) {
-	cmd := exec.Command("sh", "-c", "dd if=/dev/zero bs=1k count=1000 of=/dev/stderr; echo hello")
-	out, err := cmdStream(cmd, nil)
-	if err != nil {
-		t.Fatalf("Failed to start command: %s, output: %s", err, out)
-	}
-	errCh := make(chan error, 1)
-	go func() {
-		_, err := io.Copy(io.Discard, out)
-		errCh <- err
-	}()
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatalf("Command should not have failed (err=%.100s...)", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatalf("Command did not complete in 5 seconds; probable deadlock")
-	}
-}
-
-func TestCmdStreamBad(t *testing.T) {
-	// TODO Windows: Figure out why this is failing in CI but not locally
-	if runtime.GOOS == "windows" {
-		t.Skip("Failing on Windows CI machines")
-	}
-	badCmd := exec.Command("sh", "-c", "echo hello; echo >&2 error couldn\\'t reverse the phase pulser; exit 1")
-	out, err := cmdStream(badCmd, nil)
-	if err != nil {
-		t.Fatalf("Failed to start command: %s", err)
-	}
-	if output, err := io.ReadAll(out); err == nil {
-		t.Fatalf("Command should have failed")
-	} else if err.Error() != "exit status 1: error couldn't reverse the phase pulser\n" {
-		t.Fatalf("Wrong error value (%s)", err)
-	} else if s := string(output); s != "hello\n" {
-		t.Fatalf("Command output should be '%s', not '%s'", "hello\\n", output)
-	}
-}
-
-func TestCmdStreamGood(t *testing.T) {
-	cmd := exec.Command("sh", "-c", "echo hello; exit 0")
-	out, err := cmdStream(cmd, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if output, err := io.ReadAll(out); err != nil {
-		t.Fatalf("Command should not have failed (err=%s)", err)
-	} else if s := string(output); s != "hello\n" {
-		t.Fatalf("Command output should be '%s', not '%s'", "hello\\n", output)
 	}
 }
 
@@ -1276,39 +1122,6 @@ func readFileFromArchive(t *testing.T, archive io.ReadCloser, name string, expec
 	content, err := os.ReadFile(filepath.Join(destDir, name))
 	assert.Check(t, err)
 	return string(content)
-}
-
-func TestDisablePigz(t *testing.T) {
-	_, err := exec.LookPath("unpigz")
-	if err != nil {
-		t.Log("Test will not check full path when Pigz not installed")
-	}
-
-	t.Setenv("MOBY_DISABLE_PIGZ", "true")
-
-	r := testDecompressStream(t, "gz", "gzip -f")
-
-	// wrapped in closer to cancel contex and release buffer to pool
-	wrapper := r.(*readCloserWrapper)
-
-	assert.Equal(t, reflect.TypeOf(wrapper.Reader), reflect.TypeOf(&gzip.Reader{}))
-}
-
-func TestPigz(t *testing.T) {
-	r := testDecompressStream(t, "gz", "gzip -f")
-	// wrapper for buffered reader and context cancel
-	wrapper := r.(*readCloserWrapper)
-
-	_, err := exec.LookPath("unpigz")
-	if err == nil {
-		t.Log("Tested whether Pigz is used, as it installed")
-		// For the command wait wrapper
-		cmdWaitCloserWrapper := wrapper.Reader.(*readCloserWrapper)
-		assert.Equal(t, reflect.TypeOf(cmdWaitCloserWrapper.Reader), reflect.TypeOf(&io.PipeReader{}))
-	} else {
-		t.Log("Tested whether Pigz is not used, as it not installed")
-		assert.Equal(t, reflect.TypeOf(wrapper.Reader), reflect.TypeOf(&gzip.Reader{}))
-	}
 }
 
 func TestNosysFileInfo(t *testing.T) {

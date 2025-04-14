@@ -9,6 +9,7 @@ import (
 	"github.com/moby/sys/user"
 
 	"github.com/moby/go-archive"
+	"github.com/moby/go-archive/compression"
 )
 
 // NewArchiver returns a new Archiver which uses chrootarchive.Untar
@@ -77,7 +78,7 @@ func untarHandler(tarArchive io.Reader, dest string, options *archive.TarOptions
 
 	r := io.NopCloser(tarArchive)
 	if decompress {
-		decompressedArchive, err := archive.DecompressStream(tarArchive)
+		decompressedArchive, err := compression.DecompressStream(tarArchive)
 		if err != nil {
 			return err
 		}
