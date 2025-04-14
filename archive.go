@@ -289,8 +289,7 @@ func DecompressStream(archive io.Reader) (io.ReadCloser, error) {
 		return nil, err
 	}
 
-	compression := DetectCompression(bs)
-	switch compression {
+	switch comp := DetectCompression(bs); comp {
 	case Uncompressed:
 		return &readCloserWrapper{
 			Reader: buf,
@@ -344,7 +343,7 @@ func DecompressStream(archive io.Reader) (io.ReadCloser, error) {
 			},
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported compression format: %s", (&compression).Extension())
+		return nil, fmt.Errorf("unsupported compression format: %s", (&comp).Extension())
 	}
 }
 
@@ -355,8 +354,8 @@ type nopWriteCloser struct {
 func (nopWriteCloser) Close() error { return nil }
 
 // CompressStream compresses the dest with specified compression algorithm.
-func CompressStream(dest io.Writer, compression Compression) (io.WriteCloser, error) {
-	switch compression {
+func CompressStream(dest io.Writer, comp Compression) (io.WriteCloser, error) {
+	switch comp {
 	case Uncompressed:
 		return nopWriteCloser{dest}, nil
 	case Gzip:
@@ -364,9 +363,9 @@ func CompressStream(dest io.Writer, compression Compression) (io.WriteCloser, er
 	case Bzip2, Xz:
 		// archive/bzip2 does not support writing, and there is no xz support at all
 		// However, this is not a problem as docker only currently generates gzipped tars
-		return nil, fmt.Errorf("unsupported compression format: %s", (&compression).Extension())
+		return nil, fmt.Errorf("unsupported compression format: %s", (&comp).Extension())
 	default:
-		return nil, fmt.Errorf("unsupported compression format: %s", (&compression).Extension())
+		return nil, fmt.Errorf("unsupported compression format: %s", (&comp).Extension())
 	}
 }
 
@@ -459,8 +458,8 @@ func ReplaceFileTarWrapper(inputTarStream io.ReadCloser, mods map[string]TarModi
 }
 
 // Extension returns the extension of a file that uses the specified compression algorithm.
-func (compression *Compression) Extension() string {
-	switch *compression {
+func (c *Compression) Extension() string {
+	switch *c {
 	case Uncompressed:
 		return "tar"
 	case Bzip2:
@@ -906,8 +905,8 @@ func createTarFile(path, extractDir string, hdr *tar.Header, reader io.Reader, o
 
 // Tar creates an archive from the directory at `path`, and returns it as a
 // stream of bytes.
-func Tar(path string, compression Compression) (io.ReadCloser, error) {
-	return TarWithOptions(path, &TarOptions{Compression: compression})
+func Tar(path string, comp Compression) (io.ReadCloser, error) {
+	return TarWithOptions(path, &TarOptions{Compression: comp})
 }
 
 // TarWithOptions creates an archive from the directory at `path`, only including files whose relative
@@ -1334,15 +1333,14 @@ func untarHandler(tarArchive io.Reader, dest string, options *TarOptions, decomp
 // TarUntar is a convenience function which calls Tar and Untar, with the output of one piped into the other.
 // If either Tar or Untar fails, TarUntar aborts and returns the error.
 func (archiver *Archiver) TarUntar(src, dst string) error {
-	archive, err := TarWithOptions(src, &TarOptions{Compression: Uncompressed})
+	archive, err := Tar(src, Uncompressed)
 	if err != nil {
 		return err
 	}
 	defer archive.Close()
-	options := &TarOptions{
+	return archiver.Untar(archive, dst, &TarOptions{
 		IDMap: archiver.IDMapping,
-	}
-	return archiver.Untar(archive, dst, options)
+	})
 }
 
 // UntarPath untar a file from path to a destination, src is the source tar file path.
@@ -1352,10 +1350,9 @@ func (archiver *Archiver) UntarPath(src, dst string) error {
 		return err
 	}
 	defer archive.Close()
-	options := &TarOptions{
+	return archiver.Untar(archive, dst, &TarOptions{
 		IDMap: archiver.IDMapping,
-	}
-	return archiver.Untar(archive, dst, options)
+	})
 }
 
 // CopyWithTar creates a tar archive of filesystem path `src`, and
