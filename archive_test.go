@@ -46,7 +46,7 @@ func TestIsArchivePathDir(t *testing.T) {
 	cmd := exec.Command("sh", "-c", fmt.Sprintf("mkdir -p %s/archivedir", filepath.ToSlash(tmp)))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("Fail to create an archive file for test : %s.", output)
+		t.Fatalf("Failed to create directory (%v): %s", err, output)
 	}
 	if IsArchivePath(filepath.Join(tmp, "archivedir")) {
 		t.Fatalf("Incorrectly recognised directory as an archive")
@@ -59,7 +59,7 @@ func TestIsArchivePathInvalidFile(t *testing.T) {
 	cmd := exec.Command("sh", "-c", fmt.Sprintf("dd if=/dev/zero bs=1024 count=1 of=%s/archive && gzip --stdout %s/archive > %s/archive.gz", tmpS, tmpS, tmpS))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("Fail to create an archive file for test : %s.", output)
+		t.Fatalf("Failed to create archive file (%v): %s", err, output)
 	}
 	if IsArchivePath(filepath.Join(tmp, "archive")) {
 		t.Fatalf("Incorrectly recognised invalid tar path as archive")
@@ -77,7 +77,7 @@ func TestIsArchivePathTar(t *testing.T) {
 	cmd := exec.Command("sh", "-c", cmdStr)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("Fail to create an archive file for test : %s.", output)
+		t.Fatalf("Failed to create archive file (%v):\ncommand: %s\noutput: %s", err, cmd.String(), output)
 	}
 	if !IsArchivePath(filepath.Join(tmp, "/archive")) {
 		t.Fatalf("Did not recognise valid tar path as archive")
@@ -94,7 +94,7 @@ func testDecompressStream(t *testing.T, ext, compressCommand string) io.Reader {
 		fmt.Sprintf("touch %s/archive && %s %s/archive", tmpS, compressCommand, tmpS))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("Failed to create an archive file for test : %s.", output)
+		t.Fatalf("Failed to create archive file (%v):\ncommand: %s\noutput: %s", err, cmd.String(), output)
 	}
 	filename := "archive." + ext
 	archive, err := os.Open(filepath.Join(tmp, filename))
@@ -230,7 +230,7 @@ func TestCmdStreamLargeStderr(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "dd if=/dev/zero bs=1k count=1000 of=/dev/stderr; echo hello")
 	out, err := cmdStream(cmd, nil)
 	if err != nil {
-		t.Fatalf("Failed to start command: %s", err)
+		t.Fatalf("Failed to start command: %s, output: %s", err, out)
 	}
 	errCh := make(chan error, 1)
 	go func() {
@@ -304,8 +304,8 @@ func TestUntarPathWithInvalidDest(t *testing.T) {
 	}
 
 	cmd := exec.Command("sh", "-c", "tar cf "+tarFileU+" "+srcFileU)
-	_, err = cmd.CombinedOutput()
-	assert.NilError(t, err)
+	output, err := cmd.CombinedOutput()
+	assert.NilError(t, err, "command: %s\noutput: %s", cmd.String(), output)
 
 	err = defaultUntarPath(tarFile, invalidDestFolder)
 	if err == nil {
@@ -344,8 +344,8 @@ func TestUntarPath(t *testing.T) {
 		srcFileU = filepath.ToSlash(srcFile)
 	}
 	cmd := exec.Command("sh", "-c", "tar cf "+tarFileU+" "+srcFileU)
-	_, err = cmd.CombinedOutput()
-	assert.NilError(t, err)
+	output, err := cmd.CombinedOutput()
+	assert.NilError(t, err, "command: %s\noutput: %s", cmd.String(), output)
 
 	err = defaultUntarPath(tarFile, destFolder)
 	if err != nil {
@@ -376,9 +376,9 @@ func TestUntarPathWithDestinationFile(t *testing.T) {
 		srcFileU = filepath.ToSlash(srcFile)
 	}
 	cmd := exec.Command("sh", "-c", "tar cf "+tarFileU+" "+srcFileU)
-	_, err = cmd.CombinedOutput()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Failed to create archive file (%v):\ncommand: %s\noutput: %s", err, cmd.String(), output)
 	}
 	destFile := filepath.Join(tmpFolder, "dest")
 	f, err = os.Create(destFile)
@@ -412,9 +412,9 @@ func TestUntarPathWithDestinationSrcFileAsFolder(t *testing.T) {
 	}
 
 	cmd := exec.Command("sh", "-c", "tar cf "+tarFileU+" "+srcFileU)
-	_, err = cmd.CombinedOutput()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Failed to create archive file (%v):\ncommand: %s\noutput: %s", err, cmd.String(), output)
 	}
 	destFolder := filepath.Join(tmpFolder, "dest")
 	err = os.MkdirAll(destFolder, 0o740)
