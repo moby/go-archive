@@ -1,0 +1,47 @@
+name: test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        go-version:
+          - 1.23.x      # oldest supported (see go.mod)
+          - oldstable
+          - stable
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Test
+        run: go test -v -cover "-coverprofile=coverage.txt" -covermode=atomic ./...
+        shell: bash
+        env:
+          MSYS_NO_PATHCONV: '1'
+
+      - name: Test (root)
+        if: runner.os == 'Linux'
+        run: go test -exec "sudo -E -n" -v -cover "-coverprofile=coverage.txt" -covermode=atomic ./...
+        shell: bash
+        env:
+          MSYS_NO_PATHCONV: '1'
+
+      - name: Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          directory: ./
