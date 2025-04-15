@@ -202,51 +202,22 @@ func TestCompressStreamInvalid(t *testing.T) {
 	}
 }
 
-func TestExtensionInvalid(t *testing.T) {
-	compression := Compression(-1)
-	output := compression.Extension()
-	if output != "" {
-		t.Fatalf("The extension of an invalid compression should be an empty string.")
+func TestExtension(t *testing.T) {
+	tests := []struct {
+		compression Compression
+		extension   string
+	}{
+		{compression: -1, extension: ""},
+		{compression: Uncompressed, extension: "tar"},
+		{compression: Bzip2, extension: "tar.bz2"},
+		{compression: Gzip, extension: "tar.gz"},
+		{compression: Xz, extension: "tar.xz"},
+		{compression: Zstd, extension: "tar.zst"},
 	}
-}
-
-func TestExtensionUncompressed(t *testing.T) {
-	compression := Uncompressed
-	output := compression.Extension()
-	if output != "tar" {
-		t.Fatalf("The extension of an uncompressed archive should be 'tar'.")
-	}
-}
-
-func TestExtensionBzip2(t *testing.T) {
-	compression := Bzip2
-	output := compression.Extension()
-	if output != "tar.bz2" {
-		t.Fatalf("The extension of a bzip2 archive should be 'tar.bz2'")
-	}
-}
-
-func TestExtensionGzip(t *testing.T) {
-	compression := Gzip
-	output := compression.Extension()
-	if output != "tar.gz" {
-		t.Fatalf("The extension of a gzip archive should be 'tar.gz'")
-	}
-}
-
-func TestExtensionXz(t *testing.T) {
-	compression := Xz
-	output := compression.Extension()
-	if output != "tar.xz" {
-		t.Fatalf("The extension of a xz archive should be 'tar.xz'")
-	}
-}
-
-func TestExtensionZstd(t *testing.T) {
-	compression := Zstd
-	output := compression.Extension()
-	if output != "tar.zst" {
-		t.Fatalf("The extension of a zstd archive should be 'tar.zst'")
+	for _, tc := range tests {
+		if actual := tc.compression.Extension(); actual != tc.extension {
+			t.Errorf("expected %s extension got %s", tc.extension, actual)
+		}
 	}
 }
 
