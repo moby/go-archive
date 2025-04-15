@@ -5,6 +5,7 @@ package chrootarchive
 import (
 	gotar "archive/tar"
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path"
@@ -68,7 +69,8 @@ func TestUntarWithMaliciousSymlinks(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, string(hostData), "I am a host file")
 
-	io.Copy(io.Discard, tee)
+	_, err = io.Copy(io.Discard, tee)
+	assert.NilError(t, err)
 
 	// Now test by chrooting to an attacker controlled path
 	// This should succeed as is and overwrite a "host" file
@@ -152,7 +154,7 @@ func TestTarWithMaliciousSymlinks(t *testing.T) {
 func isDataInTar(t *testing.T, tr *gotar.Reader, compare []byte, maxBytes int64) bool {
 	for {
 		h, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		assert.NilError(t, err)

@@ -260,7 +260,7 @@ func (r *bufferedReader) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	n, err := r.buf.Read(p)
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		r.buf.Reset(nil)
 		bufioReader32KPool.Put(r.buf)
 		r.buf = nil
@@ -279,7 +279,7 @@ func (r *bufferedReader) Peek(n int) ([]byte, error) {
 func DecompressStream(archive io.Reader) (io.ReadCloser, error) {
 	buf := newBufferedReader(archive)
 	bs, err := buf.Peek(10)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		// Note: we'll ignore any io.EOF error because there are some odd
 		// cases where the layer.tar file will be empty (zero bytes) and
 		// that results in an io.EOF from the Peek() call. So, in those
@@ -344,7 +344,7 @@ func DecompressStream(archive io.Reader) (io.ReadCloser, error) {
 			},
 		}, nil
 	default:
-		return nil, fmt.Errorf("Unsupported compression format %s", (&compression).Extension())
+		return nil, fmt.Errorf("unsupported compression format: %s", (&compression).Extension())
 	}
 }
 
@@ -364,9 +364,9 @@ func CompressStream(dest io.Writer, compression Compression) (io.WriteCloser, er
 	case Bzip2, Xz:
 		// archive/bzip2 does not support writing, and there is no xz support at all
 		// However, this is not a problem as docker only currently generates gzipped tars
-		return nil, fmt.Errorf("Unsupported compression format %s", (&compression).Extension())
+		return nil, fmt.Errorf("unsupported compression format: %s", (&compression).Extension())
 	default:
-		return nil, fmt.Errorf("Unsupported compression format %s", (&compression).Extension())
+		return nil, fmt.Errorf("unsupported compression format: %s", (&compression).Extension())
 	}
 }
 
@@ -416,7 +416,7 @@ func ReplaceFileTarWrapper(inputTarStream io.ReadCloser, mods map[string]TarModi
 		var originalHeader *tar.Header
 		for {
 			originalHeader, err = tarReader.Next()
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			if err != nil {
@@ -768,7 +768,7 @@ func createTarFile(path, extractDir string, hdr *tar.Header, reader io.Reader, o
 	case tar.TypeDir:
 		// Create directory unless it exists as a directory already.
 		// In that case we just want to merge the two
-		if fi, err := os.Lstat(path); !(err == nil && fi.IsDir()) {
+		if fi, err := os.Lstat(path); err != nil || !fi.IsDir() {
 			if err := os.Mkdir(path, hdrInfo.Mode()); err != nil {
 				return err
 			}
@@ -1031,7 +1031,8 @@ func (t *Tarballer) Do() {
 		)
 
 		walkRoot := getWalkRoot(t.srcPath, include)
-		filepath.WalkDir(walkRoot, func(filePath string, f os.DirEntry, err error) error {
+		// TODO(thaJeztah): should this error be handled?
+		_ = filepath.WalkDir(walkRoot, func(filePath string, f os.DirEntry, err error) error {
 			if err != nil {
 				log.G(context.TODO()).Errorf("Tar: Can't stat file %s to tar: %s", t.srcPath, err)
 				return nil
@@ -1135,7 +1136,7 @@ func (t *Tarballer) Do() {
 			if err := ta.addTarFile(filePath, relFilePath); err != nil {
 				log.G(context.TODO()).Errorf("Can't add file %s to tar: %s", filePath, err)
 				// if pipe is broken, stop writing tar stream to it
-				if err == io.ErrClosedPipe {
+				if errors.Is(err, io.ErrClosedPipe) {
 					return err
 				}
 			}
@@ -1155,7 +1156,7 @@ func Unpack(decompressedArchive io.Reader, dest string, options *TarOptions) err
 loop:
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// end of tar archive
 			break
 		}
@@ -1217,7 +1218,7 @@ loop:
 				continue
 			}
 
-			if !(fi.IsDir() && hdr.Typeflag == tar.TypeDir) {
+			if !fi.IsDir() || hdr.Typeflag != tar.TypeDir {
 				if err := os.RemoveAll(path); err != nil {
 					return err
 				}
@@ -1309,7 +1310,7 @@ func UntarUncompressed(tarArchive io.Reader, dest string, options *TarOptions) e
 // Handler for teasing out the automatic decompression
 func untarHandler(tarArchive io.Reader, dest string, options *TarOptions, decompress bool) error {
 	if tarArchive == nil {
-		return fmt.Errorf("Empty archive")
+		return errors.New("empty archive")
 	}
 	dest = filepath.Clean(dest)
 	if options == nil {
@@ -1393,7 +1394,7 @@ func (archiver *Archiver) CopyFileWithTar(src, dst string) (err error) {
 	}
 
 	if srcSt.IsDir() {
-		return fmt.Errorf("Can't copy a directory")
+		return errors.New("can't copy a directory")
 	}
 
 	// Clean up the trailing slash. This must be done in an operating
@@ -1492,9 +1493,9 @@ func cmdStream(cmd *exec.Cmd, input io.Reader) (io.ReadCloser, error) {
 	// Copy stdout to the returned pipe
 	go func() {
 		if err := cmd.Wait(); err != nil {
-			pipeW.CloseWithError(fmt.Errorf("%s: %s", err, errBuf.String()))
+			_ = pipeW.CloseWithError(fmt.Errorf("%w: %s", err, errBuf.String()))
 		} else {
-			pipeW.Close()
+			_ = pipeW.Close()
 		}
 		close(done)
 	}()

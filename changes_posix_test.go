@@ -2,6 +2,7 @@ package archive
 
 import (
 	"archive/tar"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -112,7 +113,7 @@ func walkHeaders(r io.Reader) ([]tar.Header, error) {
 	for {
 		hdr, err := t.Next()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return headers, err

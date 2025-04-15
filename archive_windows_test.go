@@ -21,11 +21,12 @@ func TestCopyFileWithInvalidDest(t *testing.T) {
 	dest := "c:dest"
 	srcFolder := filepath.Join(folder, "src")
 	src := filepath.Join(folder, "src", "src")
-	err = os.MkdirAll(srcFolder, 0o740)
-	if err != nil {
+	if err := os.MkdirAll(srcFolder, 0o740); err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(src, []byte("content"), 0o777)
+	if err := os.WriteFile(src, []byte("content"), 0o777); err != nil {
+		t.Fatal(err)
+	}
 	err = defaultCopyWithTar(src, dest)
 	if err == nil {
 		t.Fatalf("archiver.CopyWithTar should throw an error on invalid dest.")

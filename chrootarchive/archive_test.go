@@ -102,21 +102,21 @@ func TestChrootUntarEmptyArchive(t *testing.T) {
 	}
 }
 
-func prepareSourceDirectory(numberOfFiles int, targetPath string, makeSymLinks bool) (int, error) {
+func prepareSourceDirectory(targetPath string, makeSymLinks bool) error {
 	fileData := []byte("fooo")
+	numberOfFiles := 10
 	for n := 0; n < numberOfFiles; n++ {
 		fileName := fmt.Sprintf("file-%d", n)
 		if err := os.WriteFile(filepath.Join(targetPath, fileName), fileData, 0o700); err != nil {
-			return 0, err
+			return err
 		}
 		if makeSymLinks {
 			if err := os.Symlink(filepath.Join(targetPath, fileName), filepath.Join(targetPath, fileName+"-link")); err != nil {
-				return 0, err
+				return err
 			}
 		}
 	}
-	totalSize := numberOfFiles * len(fileData)
-	return totalSize, nil
+	return nil
 }
 
 func getHash(filename string) (uint32, error) {
@@ -125,7 +125,9 @@ func getHash(filename string) (uint32, error) {
 		return 0, err
 	}
 	hash := crc32.NewIEEE()
-	hash.Write(stream)
+	if _, err := hash.Write(stream); err != nil {
+		return 0, err
+	}
 	return hash.Sum32(), nil
 }
 
@@ -135,7 +137,7 @@ func compareDirectories(src string, dest string) error {
 		return err
 	}
 	if len(changes) > 0 {
-		return fmt.Errorf("Unexpected differences after untar: %v", changes)
+		return fmt.Errorf("unexpected differences after untar: %v", changes)
 	}
 	return nil
 }
@@ -163,7 +165,7 @@ func TestChrootTarUntarWithSymlink(t *testing.T) {
 	if err := os.Mkdir(src, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepareSourceDirectory(10, src, false); err != nil {
+	if err := prepareSourceDirectory(src, false); err != nil {
 		t.Fatal(err)
 	}
 	dest := filepath.Join(tmpdir, "dest")
@@ -183,7 +185,7 @@ func TestChrootCopyWithTar(t *testing.T) {
 	if err := os.Mkdir(src, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepareSourceDirectory(10, src, true); err != nil {
+	if err := prepareSourceDirectory(src, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -226,7 +228,7 @@ func TestChrootCopyFileWithTar(t *testing.T) {
 	if err := os.Mkdir(src, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepareSourceDirectory(10, src, true); err != nil {
+	if err := prepareSourceDirectory(src, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -267,7 +269,7 @@ func TestChrootUntarPath(t *testing.T) {
 	if err := os.Mkdir(src, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepareSourceDirectory(10, src, false); err != nil {
+	if err := prepareSourceDirectory(src, false); err != nil {
 		t.Fatal(err)
 	}
 	dest := filepath.Join(tmpdir, "dest")
@@ -282,7 +284,9 @@ func TestChrootUntarPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	buf := new(bytes.Buffer)
-	buf.ReadFrom(stream)
+	if _, err := buf.ReadFrom(stream); err != nil {
+		t.Fatal(err)
+	}
 	tarfile := filepath.Join(tmpdir, "src.tar")
 	if err := os.WriteFile(tarfile, buf.Bytes(), 0o644); err != nil {
 		t.Fatal(err)

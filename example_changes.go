@@ -73,7 +73,7 @@ func main() {
 	defer a.Close()
 
 	i, err := io.Copy(os.Stdout, a)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		log.Fatal(err)
 	}
 	fmt.Fprintf(os.Stderr, "wrote archive of %d bytes", i)

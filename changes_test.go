@@ -1,6 +1,7 @@
 package archive
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path"
@@ -34,8 +35,9 @@ func copyDir(src, dst string) error {
 	// Use robocopy instead. Note this isn't available in microsoft/nanoserver.
 	// But it has gotchas. See https://weblogs.sqlteam.com/robv/archive/2010/02/17/61106.aspx
 	err := exec.Command("robocopy", filepath.FromSlash(src), filepath.FromSlash(dst), "/SL", "/COPYALL", "/MIR").Run()
-	if exiterr, ok := err.(*exec.ExitError); ok {
-		if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) {
+		if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
 			if status.ExitStatus()&24 == 0 {
 				return nil
 			}
@@ -93,13 +95,14 @@ func provisionSampleDir(t *testing.T, root string, files []FileData) {
 	now := time.Now()
 	for _, info := range files {
 		p := path.Join(root, info.path)
-		if info.filetype == Dir {
+		switch info.filetype {
+		case Dir:
 			err := os.MkdirAll(p, info.permissions)
 			assert.NilError(t, err)
-		} else if info.filetype == Regular {
+		case Regular:
 			err := os.WriteFile(p, []byte(info.contents), info.permissions)
 			assert.NilError(t, err)
-		} else if info.filetype == Symlink {
+		case Symlink:
 			err := os.Symlink(info.contents, p)
 			assert.NilError(t, err)
 		}
@@ -113,20 +116,17 @@ func provisionSampleDir(t *testing.T, root string, files []FileData) {
 }
 
 func TestChangeString(t *testing.T) {
-	modifyChange := Change{"change", ChangeModify}
-	toString := modifyChange.String()
-	if toString != "C change" {
-		t.Fatalf("String() of a change with ChangeModify Kind should have been %s but was %s", "C change", toString)
+	actual := (&Change{Path: "change", Kind: ChangeModify}).String()
+	if actual != "C change" {
+		t.Fatalf("String() of a change with ChangeModify Kind should have been %s but was %s", "C change", actual)
 	}
-	addChange := Change{"change", ChangeAdd}
-	toString = addChange.String()
-	if toString != "A change" {
-		t.Fatalf("String() of a change with ChangeAdd Kind should have been %s but was %s", "A change", toString)
+	actual = (&Change{Path: "change", Kind: ChangeAdd}).String()
+	if actual != "A change" {
+		t.Fatalf("String() of a change with ChangeAdd Kind should have been %s but was %s", "A change", actual)
 	}
-	deleteChange := Change{"change", ChangeDelete}
-	toString = deleteChange.String()
-	if toString != "D change" {
-		t.Fatalf("String() of a change with ChangeDelete Kind should have been %s but was %s", "D change", toString)
+	actual = (&Change{Path: "change", Kind: ChangeDelete}).String()
+	if actual != "D change" {
+		t.Fatalf("String() of a change with ChangeDelete Kind should have been %s but was %s", "D change", actual)
 	}
 }
 
@@ -151,7 +151,7 @@ func TestChangesWithChanges(t *testing.T) {
 	assert.NilError(t, err)
 	defer os.RemoveAll(layer)
 	createSampleDir(t, layer)
-	os.MkdirAll(path.Join(layer, "dir1/subfolder"), 0o740)
+	assert.NilError(t, os.MkdirAll(path.Join(layer, "dir1/subfolder"), 0o740))
 
 	// Mock the RW layer
 	rwLayer, err := os.MkdirTemp("", "docker-changes-test")
@@ -160,26 +160,26 @@ func TestChangesWithChanges(t *testing.T) {
 
 	// Create a folder in RW layer
 	dir1 := path.Join(rwLayer, "dir1")
-	os.MkdirAll(dir1, 0o740)
+	assert.NilError(t, os.MkdirAll(dir1, 0o740))
 	deletedFile := path.Join(dir1, ".wh.file1-2")
-	os.WriteFile(deletedFile, []byte{}, 0o600)
+	assert.NilError(t, os.WriteFile(deletedFile, []byte{}, 0o600))
 	modifiedFile := path.Join(dir1, "file1-1")
-	os.WriteFile(modifiedFile, []byte{0x00}, 0o1444)
+	assert.NilError(t, os.WriteFile(modifiedFile, []byte{0x00}, 0o1444))
 	// Let's add a subfolder for a newFile
 	subfolder := path.Join(dir1, "subfolder")
-	os.MkdirAll(subfolder, 0o740)
+	assert.NilError(t, os.MkdirAll(subfolder, 0o740))
 	newFile := path.Join(subfolder, "newFile")
-	os.WriteFile(newFile, []byte{}, 0o740)
+	assert.NilError(t, os.WriteFile(newFile, []byte{}, 0o740))
 
 	changes, err := Changes([]string{layer}, rwLayer)
 	assert.NilError(t, err)
 
 	expectedChanges := []Change{
-		{filepath.FromSlash("/dir1"), ChangeModify},
-		{filepath.FromSlash("/dir1/file1-1"), ChangeModify},
-		{filepath.FromSlash("/dir1/file1-2"), ChangeDelete},
-		{filepath.FromSlash("/dir1/subfolder"), ChangeModify},
-		{filepath.FromSlash("/dir1/subfolder/newFile"), ChangeAdd},
+		{Path: filepath.FromSlash("/dir1"), Kind: ChangeModify},
+		{Path: filepath.FromSlash("/dir1/file1-1"), Kind: ChangeModify},
+		{Path: filepath.FromSlash("/dir1/file1-2"), Kind: ChangeDelete},
+		{Path: filepath.FromSlash("/dir1/subfolder"), Kind: ChangeModify},
+		{Path: filepath.FromSlash("/dir1/subfolder/newFile"), Kind: ChangeAdd},
 	}
 	checkChanges(expectedChanges, changes, t)
 }
@@ -195,10 +195,10 @@ func TestChangesWithChangesGH13590(t *testing.T) {
 	defer os.RemoveAll(baseLayer)
 
 	dir3 := path.Join(baseLayer, "dir1/dir2/dir3")
-	os.MkdirAll(dir3, 0o7400)
+	assert.NilError(t, os.MkdirAll(dir3, 0o740))
 
 	file := path.Join(dir3, "file.txt")
-	os.WriteFile(file, []byte("hello"), 0o666)
+	assert.NilError(t, os.WriteFile(file, []byte("hello"), 0o666))
 
 	layer, err := os.MkdirTemp("", "docker-changes-test2.")
 	assert.NilError(t, err)
@@ -209,16 +209,16 @@ func TestChangesWithChangesGH13590(t *testing.T) {
 		t.Fatalf("Cmd failed: %q", err)
 	}
 
-	os.Remove(path.Join(layer, "dir1/dir2/dir3/file.txt"))
+	assert.NilError(t, os.Remove(path.Join(layer, "dir1/dir2/dir3/file.txt")))
 	file = path.Join(layer, "dir1/dir2/dir3/file1.txt")
-	os.WriteFile(file, []byte("bye"), 0o666)
+	assert.NilError(t, os.WriteFile(file, []byte("bye"), 0o666))
 
 	changes, err := Changes([]string{baseLayer}, layer)
 	assert.NilError(t, err)
 
 	expectedChanges := []Change{
-		{"/dir1/dir2/dir3", ChangeModify},
-		{"/dir1/dir2/dir3/file1.txt", ChangeAdd},
+		{Path: "/dir1/dir2/dir3", Kind: ChangeModify},
+		{Path: "/dir1/dir2/dir3/file1.txt", Kind: ChangeAdd},
 	}
 	checkChanges(expectedChanges, changes, t)
 
@@ -232,13 +232,13 @@ func TestChangesWithChangesGH13590(t *testing.T) {
 	}
 
 	file = path.Join(layer, "dir1/dir2/dir3/file.txt")
-	os.WriteFile(file, []byte("bye"), 0o666)
+	assert.NilError(t, os.WriteFile(file, []byte("bye"), 0o666))
 
 	changes, err = Changes([]string{baseLayer}, layer)
 	assert.NilError(t, err)
 
 	expectedChanges = []Change{
-		{"/dir1/dir2/dir3/file.txt", ChangeModify},
+		{Path: "/dir1/dir2/dir3/file.txt", Kind: ChangeModify},
 	}
 	checkChanges(expectedChanges, changes, t)
 }
@@ -263,8 +263,8 @@ func TestChangesDirsEmpty(t *testing.T) {
 	if len(changes) != 0 {
 		t.Fatalf("Reported changes for identical dirs: %v", changes)
 	}
-	os.RemoveAll(src)
-	os.RemoveAll(dst)
+	assert.NilError(t, os.RemoveAll(src))
+	assert.NilError(t, os.RemoveAll(dst))
 }
 
 func mutateSampleDir(t *testing.T, root string) {
@@ -341,8 +341,10 @@ func TestChangesDirsMutated(t *testing.T) {
 	dst := src + "-copy"
 	err = copyDir(src, dst)
 	assert.NilError(t, err)
-	defer os.RemoveAll(src)
-	defer os.RemoveAll(dst)
+	defer func() {
+		_ = os.RemoveAll(dst)
+		_ = os.RemoveAll(src)
+	}()
 
 	mutateSampleDir(t, dst)
 
@@ -352,8 +354,8 @@ func TestChangesDirsMutated(t *testing.T) {
 	sort.Sort(changesByPath(changes))
 
 	expectedChanges := []Change{
-		{filepath.FromSlash("/dir1"), ChangeDelete},
-		{filepath.FromSlash("/dir2"), ChangeModify},
+		{Path: filepath.FromSlash("/dir1"), Kind: ChangeDelete},
+		{Path: filepath.FromSlash("/dir2"), Kind: ChangeModify},
 	}
 
 	// Note there is slight difference between the Linux and Windows
@@ -367,20 +369,20 @@ func TestChangesDirsMutated(t *testing.T) {
 	// this is in the middle of the list of changes rather than at the start or
 	// end. Potentially can be addressed later.
 	if runtime.GOOS == "windows" {
-		expectedChanges = append(expectedChanges, Change{filepath.FromSlash("/dir3"), ChangeModify})
+		expectedChanges = append(expectedChanges, Change{Path: filepath.FromSlash("/dir3"), Kind: ChangeModify})
 	}
 
 	expectedChanges = append(expectedChanges, []Change{
-		{filepath.FromSlash("/dirnew"), ChangeAdd},
-		{filepath.FromSlash("/file1"), ChangeDelete},
-		{filepath.FromSlash("/file2"), ChangeModify},
-		{filepath.FromSlash("/file3"), ChangeModify},
-		{filepath.FromSlash("/file4"), ChangeModify},
-		{filepath.FromSlash("/file5"), ChangeModify},
-		{filepath.FromSlash("/filenew"), ChangeAdd},
-		{filepath.FromSlash("/symlink1"), ChangeDelete},
-		{filepath.FromSlash("/symlink2"), ChangeModify},
-		{filepath.FromSlash("/symlinknew"), ChangeAdd},
+		{Path: filepath.FromSlash("/dirnew"), Kind: ChangeAdd},
+		{Path: filepath.FromSlash("/file1"), Kind: ChangeDelete},
+		{Path: filepath.FromSlash("/file2"), Kind: ChangeModify},
+		{Path: filepath.FromSlash("/file3"), Kind: ChangeModify},
+		{Path: filepath.FromSlash("/file4"), Kind: ChangeModify},
+		{Path: filepath.FromSlash("/file5"), Kind: ChangeModify},
+		{Path: filepath.FromSlash("/filenew"), Kind: ChangeAdd},
+		{Path: filepath.FromSlash("/symlink1"), Kind: ChangeDelete},
+		{Path: filepath.FromSlash("/symlink2"), Kind: ChangeModify},
+		{Path: filepath.FromSlash("/symlinknew"), Kind: ChangeAdd},
 	}...)
 
 	for i := 0; i < maxInt(len(changes), len(expectedChanges)); i++ {
@@ -479,10 +481,9 @@ func TestChangesSizeWithNoChanges(t *testing.T) {
 }
 
 func TestChangesSizeWithOnlyDeleteChanges(t *testing.T) {
-	changes := []Change{
+	size := ChangesSize("/tmp", []Change{
 		{Path: "deletedPath", Kind: ChangeDelete},
-	}
-	size := ChangesSize("/tmp", changes)
+	})
 	if size != 0 {
 		t.Fatalf("ChangesSizes with only delete changes should be 0, was %d", size)
 	}
@@ -499,11 +500,10 @@ func TestChangesSize(t *testing.T) {
 	err = os.WriteFile(modification, []byte{0x01, 0x01, 0x01}, 0o744)
 	assert.NilError(t, err)
 
-	changes := []Change{
+	size := ChangesSize(parentPath, []Change{
 		{Path: "addition", Kind: ChangeAdd},
 		{Path: "modification", Kind: ChangeModify},
-	}
-	size := ChangesSize(parentPath, changes)
+	})
 	if size != 6 {
 		t.Fatalf("Expected 6 bytes of changes, got %d", size)
 	}

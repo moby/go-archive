@@ -335,7 +335,7 @@ func RebaseArchiveEntries(srcContent io.Reader, oldBase, newBase string) io.Read
 
 		for {
 			hdr, err := srcTar.Next()
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				// Signals end of archive.
 				rebasedTar.Close()
 				w.Close()

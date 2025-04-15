@@ -26,7 +26,7 @@ func applyLayerHandler(dest string, layer io.Reader, options *archive.TarOptions
 	dest = addLongPathPrefix(filepath.Clean(dest))
 	s, err := archive.UnpackLayer(dest, layer, nil)
 	if err != nil {
-		return 0, fmt.Errorf("ApplyLayer %s failed UnpackLayer to %s: %s", layer, dest, err)
+		return 0, fmt.Errorf("ApplyLayer %s failed UnpackLayer to %s: %w", layer, dest, err)
 	}
 
 	return s, nil

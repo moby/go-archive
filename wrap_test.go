@@ -3,6 +3,7 @@ package archive
 import (
 	"archive/tar"
 	"bytes"
+	"errors"
 	"io"
 	"testing"
 
@@ -25,12 +26,13 @@ func TestGenerateEmptyFile(t *testing.T) {
 	i := 0
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		assert.NilError(t, err)
 		buf := new(bytes.Buffer)
-		buf.ReadFrom(tr)
+		_, err = buf.ReadFrom(tr)
+		assert.NilError(t, err)
 		content := buf.String()
 		actualFiles = append(actualFiles, []string{hdr.Name, content})
 		i++
@@ -66,12 +68,13 @@ func TestGenerateWithContent(t *testing.T) {
 	i := 0
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		assert.NilError(t, err)
 		buf := new(bytes.Buffer)
-		buf.ReadFrom(tr)
+		_, err = buf.ReadFrom(tr)
+		assert.NilError(t, err)
 		content := buf.String()
 		actualFiles = append(actualFiles, []string{hdr.Name, content})
 		i++

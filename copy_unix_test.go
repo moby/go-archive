@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -355,7 +356,7 @@ func TestCopyCaseB(t *testing.T) {
 		t.Fatal("expected ErrDirNotExists error, but got nil instead")
 	}
 
-	if err != ErrDirNotExists {
+	if !errors.Is(err, ErrDirNotExists) {
 		t.Fatalf("expected ErrDirNotExists error, but got %T: %s", err, err)
 	}
 
@@ -364,7 +365,7 @@ func TestCopyCaseB(t *testing.T) {
 	if err = testCopyHelperFSym(t, symlinkPath, dstDir); err == nil {
 		t.Fatal("expected ErrDirNotExists error, but got nil instead")
 	}
-	if err != ErrDirNotExists {
+	if !errors.Is(err, ErrDirNotExists) {
 		t.Fatalf("expected ErrDirNotExists error, but got %T: %s", err, err)
 	}
 }
@@ -647,7 +648,7 @@ func TestCopyCaseF(t *testing.T) {
 		t.Fatal("expected ErrCannotCopyDir error, but got nil instead")
 	}
 
-	if err != ErrCannotCopyDir {
+	if !errors.Is(err, ErrCannotCopyDir) {
 		t.Fatalf("expected ErrCannotCopyDir error, but got %T: %s", err, err)
 	}
 
@@ -656,7 +657,7 @@ func TestCopyCaseF(t *testing.T) {
 		t.Fatal("expected ErrCannotCopyDir error, but got nil instead")
 	}
 
-	if err != ErrCannotCopyDir {
+	if !errors.Is(err, ErrCannotCopyDir) {
 		t.Fatalf("expected ErrCannotCopyDir error, but got %T: %s", err, err)
 	}
 }
@@ -871,7 +872,7 @@ func TestCopyCaseI(t *testing.T) {
 		t.Fatal("expected ErrCannotCopyDir error, but got nil instead")
 	}
 
-	if err != ErrCannotCopyDir {
+	if !errors.Is(err, ErrCannotCopyDir) {
 		t.Fatalf("expected ErrCannotCopyDir error, but got %T: %s", err, err)
 	}
 
@@ -880,7 +881,7 @@ func TestCopyCaseI(t *testing.T) {
 		t.Fatal("expected ErrCannotCopyDir error, but got nil instead")
 	}
 
-	if err != ErrCannotCopyDir {
+	if !errors.Is(err, ErrCannotCopyDir) {
 		t.Fatalf("expected ErrCannotCopyDir error, but got %T: %s", err, err)
 	}
 }
