@@ -42,9 +42,6 @@ func (fi nosysFileInfo) Sys() interface{} {
 	return nil
 }
 
-// sysStat, if non-nil, populates hdr from system-dependent fields of fi.
-var sysStat func(fi os.FileInfo, hdr *tar.Header) error
-
 // FileInfoHeaderNoLookups creates a partially-populated tar.Header from fi.
 //
 // Compared to the archive/tar.FileInfoHeader function, this function is safe to
@@ -66,8 +63,5 @@ func FileInfoHeaderNoLookups(fi os.FileInfo, link string) (*tar.Header, error) {
 	if err != nil {
 		return nil, err
 	}
-	if sysStat != nil {
-		return hdr, sysStat(fi, hdr)
-	}
-	return hdr, nil
+	return hdr, sysStat(fi, hdr)
 }

@@ -11,13 +11,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func init() {
-	sysStat = statUnix
-}
-
-// statUnix populates hdr from system-dependent fields of fi without performing
+// sysStat populates hdr from system-dependent fields of fi without performing
 // any OS lookups.
-func statUnix(fi os.FileInfo, hdr *tar.Header) error {
+func sysStat(fi os.FileInfo, hdr *tar.Header) error {
 	// Devmajor and Devminor are only needed for special devices.
 
 	// In FreeBSD, RDev for regular files is -1 (unless overridden by FS):
