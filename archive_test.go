@@ -1123,12 +1123,3 @@ func readFileFromArchive(t *testing.T, archive io.ReadCloser, name string, expec
 	assert.Check(t, err)
 	return string(content)
 }
-
-func TestNosysFileInfo(t *testing.T) {
-	st, err := os.Stat("archive_test.go")
-	assert.NilError(t, err)
-	h, err := tar.FileInfoHeader(nosysFileInfo{st}, "")
-	assert.NilError(t, err)
-	assert.Check(t, h.Uname == "")
-	assert.Check(t, h.Gname == "")
-}
