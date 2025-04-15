@@ -168,7 +168,7 @@ func DecompressStream(archive io.Reader) (io.ReadCloser, error) {
 		}, nil
 
 	default:
-		return nil, fmt.Errorf("unsupported compression format: %s", (&compression).Extension())
+		return nil, fmt.Errorf("unsupported compression format (%d)", compression)
 	}
 }
 
@@ -179,12 +179,15 @@ func CompressStream(dest io.Writer, compression Compression) (io.WriteCloser, er
 		return nopWriteCloser{dest}, nil
 	case Gzip:
 		return gzip.NewWriter(dest), nil
-	case Bzip2, Xz:
-		// archive/bzip2 does not support writing, and there is no xz support at all
+	case Bzip2:
+		// archive/bzip2 does not support writing.
+		return nil, errors.New("unsupported compression format: tar.bz2")
+	case Xz:
+		// there is no xz support at all
 		// However, this is not a problem as docker only currently generates gzipped tars
-		return nil, fmt.Errorf("unsupported compression format: %s", (&compression).Extension())
+		return nil, errors.New("unsupported compression format: tar.xz")
 	default:
-		return nil, fmt.Errorf("unsupported compression format: %s", (&compression).Extension())
+		return nil, fmt.Errorf("unsupported compression format (%d)", compression)
 	}
 }
 
