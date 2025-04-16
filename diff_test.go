@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/moby/go-archive/compression"
 )
 
 func TestApplyLayerInvalidFilenames(t *testing.T) {
@@ -308,6 +310,18 @@ func TestApplyLayerWhiteouts(t *testing.T) {
 	}
 }
 
+type readCloserWrapper struct {
+	io.Reader
+	closer func() error
+}
+
+func (r *readCloserWrapper) Close() error {
+	if r.closer != nil {
+		return r.closer()
+	}
+	return nil
+}
+
 func makeTestLayer(paths []string) (_ io.ReadCloser, retErr error) {
 	tmpDir, err := os.MkdirTemp("", "graphdriver-test-mklayer")
 	if err != nil {
@@ -331,7 +345,7 @@ func makeTestLayer(paths []string) (_ io.ReadCloser, retErr error) {
 			}
 		}
 	}
-	archive, err := Tar(tmpDir, Uncompressed)
+	archive, err := Tar(tmpDir, compression.None)
 	if err != nil {
 		return nil, err
 	}

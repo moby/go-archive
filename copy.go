@@ -128,7 +128,6 @@ func TarResourceRebase(sourcePath, rebaseName string) (content io.ReadCloser, _ 
 func TarResourceRebaseOpts(sourceBase string, rebaseName string) *TarOptions {
 	filter := []string{sourceBase}
 	return &TarOptions{
-		Compression:      Uncompressed,
 		IncludeFiles:     filter,
 		IncludeSourceDir: true,
 		RebaseNames: map[string]string{
