@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/moby/sys/userns"
 	"golang.org/x/sys/unix"
 	"gotest.tools/v3/assert"
@@ -124,7 +123,7 @@ func TestOverlayTarUntar(t *testing.T) {
 		}
 		assert.NilError(t, err)
 		assert.Check(t, is.Equal(h.Devmajor, int64(0)), "unexpected device file in archive")
-		assert.Check(t, is.DeepEqual(h.PAXRecords, map[string]string(nil), cmpopts.EquateEmpty()))
+		assert.Check(t, is.DeepEqual(h.PAXRecords, map[string]string(nil)))
 		entries[h.Name] = struct{}{}
 	}
 
