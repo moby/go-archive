@@ -5,8 +5,8 @@ go 1.23.0
 require (
 	github.com/AdaLogics/go-fuzz-headers v0.0.0-20240806141605-e8a1dd7889d6
 	github.com/containerd/log v0.1.0
-	github.com/klauspost/compress v1.18.2
-	github.com/moby/patternmatcher v0.6.0
+	github.com/klauspost/compress v1.18.3
+	github.com/moby/patternmatcher v0.6.1
 	github.com/moby/sys/mount v0.3.4
 	github.com/moby/sys/mountinfo v0.7.2
 	github.com/moby/sys/reexec v0.1.0
@@ -19,5 +19,5 @@ require (
 
 require (
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/sirupsen/logrus v1.9.4 // indirect
 )
