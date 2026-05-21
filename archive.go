@@ -404,8 +404,10 @@ func (ta *tarAppender) addTarFile(path, name string) error {
 }
 
 // createTarFile extracts a single tar entry into the given root. path is the
-// root-relative path of the entry being extracted.
-func createTarFile(root *os.Root, path string, hdr *tar.Header, reader io.Reader, opts *TarOptions) error {
+// root-relative path of the entry being extracted. dc caches the last-used
+// parent directory fd to avoid repeated path walks for consecutive entries
+// in the same directory.
+func createTarFile(dc *dirCache, root *os.Root, path string, hdr *tar.Header, reader io.Reader, opts *TarOptions) error {
 	var (
 		Lchown                     = true
 		inUserns, bestEffortXattrs bool
@@ -425,35 +427,38 @@ func createTarFile(root *os.Root, path string, hdr *tar.Header, reader io.Reader
 	// so use hdrInfo.Mode() (they differ for e.g. setuid bits)
 	hdrInfo := hdr.FileInfo()
 
-	// absPath is the absolute path to the entry, derived safely from the
-	// root so it can be used for OS operations that os.Root does not support
-	// (mknod, xattrs, symlinks with absolute targets, lchtimes).
-	// safeResolve walks each path component and bounds any symlinks within
-	// the root to prevent TOCTOU symlink attacks.
-	absPath, err := safeResolve(root.Name(), path)
-	if err != nil {
-		return err
+	// absPath is computed lazily: most types use dc methods (backed by *at(2)
+	// syscalls) and never need it. It is only required for mknod, xattrs, and
+	// symlink creation (os.Root.Symlink rejects absolute targets like /usr/lib).
+	var (
+		absPath    string
+		absPathErr error
+	)
+
+	needAbsPath := func() (string, error) {
+		if absPath == "" && absPathErr == nil {
+			absPath, absPathErr = safeResolve(root.Name(), path)
+		}
+		return absPath, absPathErr
 	}
 
 	switch hdr.Typeflag {
 	case tar.TypeDir:
-		// Create directory unless it exists as a directory already.
-		// In that case we just want to merge the two.
-		// os.Root.Mkdir only accepts the nine least-significant permission
-		// bits; special bits (setuid, setgid, sticky) are applied afterward
-		// by handleLChmod via root.Chmod.
-		if fi, err := root.Lstat(path); err != nil || !fi.IsDir() {
-			if err := root.Mkdir(path, hdrInfo.Mode()&0o777); err != nil {
+		// Create directory unless it already exists as one; merge in that case.
+		// Special bits are applied afterward by handleLChmod.
+		isDir, err := dc.isExistingDir(root, path)
+		if err != nil {
+			return err
+		}
+		if !isDir {
+			if err := dc.mkdir(root, path, hdrInfo.Mode()&0o777); err != nil {
 				return err
 			}
 		}
 
 	case tar.TypeReg:
-		// Source is a regular file. Use os.Root.OpenFile so that all
-		// path resolution is bounded within root using openat(2) semantics.
-		// os.Root.OpenFile only accepts the nine least-significant permission
-		// bits; special bits are applied afterward by handleLChmod.
-		file, err := root.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, hdrInfo.Mode()&0o777)
+		// Special bits are applied afterward by handleLChmod.
+		file, err := dc.openFile(root, path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, hdrInfo.Mode()&0o777)
 		if err != nil {
 			return err
 		}
@@ -468,16 +473,22 @@ func createTarFile(root *os.Root, path string, hdr *tar.Header, reader io.Reader
 			log.G(context.TODO()).WithFields(log.Fields{"path": path, "type": hdr.Typeflag}).Debug("skipping device nodes in a userns")
 			return nil
 		}
-		// os.Root has no mknod support; use the absolute path derived from
-		// the root so the path itself remains bounded.
-		if err := handleTarTypeBlockCharFifo(hdr, absPath); err != nil {
+		// os.Root has no mknod support; use absPath so the path stays bounded.
+		ap, err := needAbsPath()
+		if err != nil {
+			return err
+		}
+		if err := handleTarTypeBlockCharFifo(hdr, ap); err != nil {
 			return err
 		}
 
 	case tar.TypeFifo:
-		// os.Root has no mknod support; use the absolute path derived from
-		// the root so the path itself remains bounded.
-		if err := handleTarTypeBlockCharFifo(hdr, absPath); err != nil {
+		// os.Root has no mknod support; use absPath so the path stays bounded.
+		ap, err := needAbsPath()
+		if err != nil {
+			return err
+		}
+		if err := handleTarTypeBlockCharFifo(hdr, ap); err != nil {
 			if inUserns && errors.Is(err, syscall.EPERM) {
 				// In most cases, cannot create a fifo if running in user namespace.
 				log.G(context.TODO()).WithFields(log.Fields{"error": err, "path": path, "type": hdr.Typeflag}).Debug("creating fifo node in a userns")
@@ -521,12 +532,12 @@ func createTarFile(root *os.Root, path string, hdr *tar.Header, reader io.Reader
 		if chownOpts == nil {
 			chownOpts = &ChownOpts{UID: hdr.Uid, GID: hdr.Gid}
 		}
-		if err := root.Lchown(path, chownOpts.UID, chownOpts.GID); err != nil {
+		if err := dc.lchown(root, path, chownOpts.UID, chownOpts.GID); err != nil {
 			var msg string
 			if inUserns && errors.Is(err, syscall.EINVAL) {
 				msg = " (try increasing the number of subordinate IDs in /etc/subuid and /etc/subgid)"
 			}
-			return fmt.Errorf("failed to Lchown %q for UID %d, GID %d%s: %w", path, hdr.Uid, hdr.Gid, msg, err)
+			return fmt.Errorf("failed to lchown %q for UID %d, GID %d%s: %w", path, hdr.Uid, hdr.Gid, msg, err)
 		}
 	}
 
@@ -538,7 +549,11 @@ func createTarFile(root *os.Root, path string, hdr *tar.Header, reader io.Reader
 		}
 		// os.Root has no xattr support; use the absolute path derived from
 		// the root so the path remains bounded.
-		if err := lsetxattr(absPath, xattr, []byte(value), 0); err != nil {
+		ap, err := needAbsPath()
+		if err != nil {
+			return err
+		}
+		if err := lsetxattr(ap, xattr, []byte(value), 0); err != nil {
 			if bestEffortXattrs && errors.Is(err, syscall.ENOTSUP) || errors.Is(err, syscall.EPERM) {
 				// EPERM occurs if modifying xattrs is not allowed. This can
 				// happen when running in userns with restrictions (ChromeOS).
@@ -557,27 +572,26 @@ func createTarFile(root *os.Root, path string, hdr *tar.Header, reader io.Reader
 
 	// There is no LChmod, so ignore mode for symlink. Also, this
 	// must happen after chown, as that can modify the file mode.
-	if err := handleLChmod(root, path, hdr, hdrInfo); err != nil {
+	if err := handleLChmod(dc, root, path, hdr, hdrInfo); err != nil {
 		return err
 	}
 
 	aTime := boundTime(latestTime(hdr.AccessTime, hdr.ModTime))
 	mTime := boundTime(hdr.ModTime)
 
-	// os.Root.Chtimes follows symlinks; for symlinks use lchtimes with the
-	// absolute path so AT_SYMLINK_NOFOLLOW is applied to the final component.
+	// Symlinks use lchtimes (AT_SYMLINK_NOFOLLOW); all other types follow symlinks.
 	if hdr.Typeflag == tar.TypeLink {
 		if fi, err := root.Lstat(hdr.Linkname); err == nil && (fi.Mode()&os.ModeSymlink == 0) {
-			if err := root.Chtimes(path, aTime, mTime); err != nil {
+			if err := dc.chtimes(root, path, aTime, mTime); err != nil {
 				return err
 			}
 		}
 	} else if hdr.Typeflag != tar.TypeSymlink {
-		if err := root.Chtimes(path, aTime, mTime); err != nil {
+		if err := dc.chtimes(root, path, aTime, mTime); err != nil {
 			return err
 		}
 	} else {
-		if err := lchtimes(absPath, aTime, mTime); err != nil {
+		if err := dc.lchtimes(root, path, aTime, mTime); err != nil {
 			return err
 		}
 	}
@@ -843,6 +857,11 @@ func Unpack(decompressedArchive io.Reader, dest string, options *TarOptions) err
 
 	tr := tar.NewReader(decompressedArchive)
 
+	// dc caches the last-opened parent directory fd so that consecutive
+	// entries in the same directory avoid re-walking the full path.
+	var dc dirCache
+	defer dc.close()
+
 	var dirs []unpackedDir
 	whiteoutConverter := getWhiteoutConverter(options.WhiteoutFormat)
 
@@ -934,7 +953,7 @@ loop:
 			}
 		}
 
-		if err := createTarFile(root, hdr.Name, hdr, tr, options); err != nil {
+		if err := createTarFile(&dc, root, hdr.Name, hdr, tr, options); err != nil {
 			return err
 		}
 

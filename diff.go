@@ -31,6 +31,11 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 
 	tr := tar.NewReader(layer)
 
+	// dc caches the last-opened parent directory fd so that consecutive
+	// entries in the same directory avoid re-walking the full path.
+	var dc dirCache
+	defer dc.close()
+
 	var dirs []unpackedDir
 	// unpackedPaths tracks root-relative paths already written in this layer
 	// so that the AUFS opaque-whiteout walk knows which paths to preserve.
@@ -114,7 +119,9 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 				if err != nil {
 					return 0, err
 				}
-				cerr := createTarFile(aufsRoot, basename, hdr, tr, options)
+				var aufsDC dirCache
+				cerr := createTarFile(&aufsDC, aufsRoot, basename, hdr, tr, options)
+				aufsDC.close()
 				aufsRoot.Close()
 				if cerr != nil {
 					return 0, cerr
@@ -217,7 +224,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 				return 0, err
 			}
 
-			if err := createTarFile(root, path, srcHdr, srcData, options); err != nil {
+			if err := createTarFile(&dc, root, path, srcHdr, srcData, options); err != nil {
 				return 0, err
 			}
 

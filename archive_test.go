@@ -590,7 +590,8 @@ func TestTypeXGlobalHeaderDoesNotFail(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer root.Close()
-	err = createTarFile(root, "pax_global_header", &hdr, nil, nil)
+	var dc dirCache
+	err = createTarFile(&dc, root, "pax_global_header", &hdr, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
