@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -470,12 +471,17 @@ func createTarFile(dstPath, extractDir string, hdr *tar.Header, reader io.Reader
 		}
 
 	case tar.TypeLink:
-		// #nosec G305 -- The target path is checked for path traversal.
-		linkTarget := filepath.Join(extractDir, hdr.Linkname)
-		// check for hardlink breakout
-		if !strings.HasPrefix(linkTarget, extractDir) {
-			return breakoutError(fmt.Errorf("invalid hardlink %q -> %q", linkTarget, hdr.Linkname))
+		// Resolve only the parent directory of the hardlink target through
+		// any symlinks within extractDir to prevent escape via path
+		// traversal. The final component is not dereferenced so the
+		// hardlink references the literal node, matching link(2) semantics
+		// (a hardlink whose source is a symlink references the symlink
+		// inode itself, not its target).
+		targetDir, err := safeResolve(extractDir, filepath.Dir(hdr.Linkname))
+		if err != nil {
+			return err
 		}
+		linkTarget := filepath.Join(targetDir, filepath.Base(hdr.Linkname))
 		if err := os.Link(linkTarget, dstPath); err != nil {
 			return err
 		}
@@ -806,11 +812,18 @@ func (t *Tarballer) Do() {
 	}
 }
 
+// unpackedDir records a directory whose mtime must be restored after all
+// entries are extracted, along with the resolved path used during extraction.
+type unpackedDir struct {
+	hdr  *tar.Header
+	path string
+}
+
 // Unpack unpacks the decompressedArchive to dest with options.
 func Unpack(decompressedArchive io.Reader, dest string, options *TarOptions) error {
 	tr := tar.NewReader(decompressedArchive)
 
-	var dirs []*tar.Header
+	var dirs []unpackedDir
 	whiteoutConverter := getWhiteoutConverter(options.WhiteoutFormat)
 
 	// Iterate through the files in the archive.
@@ -831,10 +844,20 @@ loop:
 			continue
 		}
 
-		// Normalize name, for safety and for a simple is-root check
-		// This keeps "../" as-is, but normalizes "/../" to "/". Or Windows:
-		// This keeps "..\" as-is, but normalizes "\..\" to "\".
-		hdr.Name = filepath.Clean(hdr.Name)
+		// Normalize name: root with "/" to eliminate leading ".."
+		// components, then strip the leading "/" for a root-relative path.
+		hdr.Name = strings.TrimLeft(path.Join("/", hdr.Name), "/")
+		if hdr.Name == "" {
+			hdr.Name = "."
+		}
+		// Defence-in-depth: reject any name that, after normalisation,
+		// would still resolve outside the extraction root (absolute, empty,
+		// or containing ".." components). This should be unreachable after
+		// the normalisation above; it also serves as an explicit sanitiser
+		// that static analysers recognise.
+		if !filepath.IsLocal(hdr.Name) {
+			return breakoutError(fmt.Errorf("invalid entry name %q", hdr.Name))
+		}
 
 		for _, exclude := range options.ExcludePatterns {
 			if strings.HasPrefix(hdr.Name, exclude) {
@@ -848,15 +871,16 @@ loop:
 			return err
 		}
 
-		// #nosec G305 -- The joined path is checked for path traversal.
-		dstPath := filepath.Join(dest, hdr.Name)
-		rel, err := filepath.Rel(dest, dstPath)
+		// Resolve only the parent directory through any symlinks within
+		// dest to prevent path traversal via intermediate components.
+		// The final component is not dereferenced so that entries replace
+		// the node at their literal path (e.g. an existing symlink is
+		// replaced rather than written through to its target).
+		resolvedDir, err := safeResolve(dest, filepath.Dir(hdr.Name))
 		if err != nil {
 			return err
 		}
-		if strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-			return breakoutError(fmt.Errorf("%q is outside of %q", hdr.Name, dest))
-		}
+		dstPath := filepath.Join(resolvedDir, filepath.Base(hdr.Name))
 
 		// If path exits we almost always just want to remove and replace it
 		// The only exception is when it is a directory *and* the file from
@@ -905,16 +929,15 @@ loop:
 		}
 
 		// Directory mtimes must be handled at the end to avoid further
-		// file creation in them to modify the directory mtime
+		// file creation in them to modify the directory mtime.
 		if hdr.Typeflag == tar.TypeDir {
-			dirs = append(dirs, hdr)
+			dirs = append(dirs, unpackedDir{hdr: hdr, path: path})
 		}
 	}
 
-	for _, hdr := range dirs {
-		// #nosec G305 -- The header was checked for path traversal before it was appended to the dirs slice.
-		dstPath := filepath.Join(dest, hdr.Name)
-		if err := chtimes(dstPath, boundTime(latestTime(hdr.AccessTime, hdr.ModTime)), boundTime(hdr.ModTime)); err != nil {
+	for _, d := range dirs {
+		aTime := boundTime(latestTime(d.hdr.AccessTime, d.hdr.ModTime))
+		if err := chtimes(d.path, aTime, boundTime(d.hdr.ModTime)); err != nil {
 			return err
 		}
 	}
@@ -926,14 +949,20 @@ loop:
 // defined by the paths of files in the tar, but there are no header entries for the directories themselves, and thus
 // we most both create them and choose metadata like permissions.
 //
-// The caller should have performed filepath.Clean(hdr.Name), so hdr.Name will now be in the filepath format for the OS
-// on which the daemon is running. This precondition is required because this function assumes a OS-specific path
-// separator when checking that a path is not the root.
+// The caller must have normalized hdr.Name (no leading ".." components).
 func createImpliedDirectories(dest string, hdr *tar.Header, options *TarOptions) error {
-	// Not the root directory, ensure that the parent directory exists
+	// Not the root directory, ensure that the parent directory exists.
 	if !strings.HasSuffix(hdr.Name, string(os.PathSeparator)) {
 		parent := filepath.Dir(hdr.Name)
-		parentPath := filepath.Join(dest, parent)
+		// Resolve the parent path through any symlinks within dest. This
+		// bounds the subsequent Lstat and MkdirAllAndChown operations
+		// within dest so a pre-existing or archive-planted symlink in an
+		// intermediate component cannot redirect directory creation
+		// outside the extraction root.
+		parentPath, err := safeResolve(dest, parent)
+		if err != nil {
+			return err
+		}
 		if _, err := os.Lstat(parentPath); err != nil && os.IsNotExist(err) {
 			// RootPair() is confined inside this loop as most cases will not require a call, so we can spend some
 			// unneeded function calls in the uncommon case to encapsulate logic -- implied directories are a niche

@@ -924,6 +924,51 @@ func TestUntarInvalidSymlink(t *testing.T) {
 	}
 }
 
+// TestUntarSymlinkBreakout is a regression test for a tar path-traversal
+// vulnerability: a two-hop symlink chain in a malicious archive can escape
+// the extraction root at runtime while passing the static path checks that
+// guard each entry name and symlink target.  Two hops are needed because a
+// direct out-of-root symlink target is already rejected by a static check in
+// createTarFile; the first hop (go_up -> "..") fools that check for the
+// second hop (escape -> "../victim") by appearing to stay within the root
+// when paths are joined as strings, while the OS resolves go_up at runtime
+// and places escape one level higher than the check assumed.
+func TestUntarSymlinkBreakout(t *testing.T) {
+	tmpdir := t.TempDir()
+	dest := filepath.Join(tmpdir, "dest")
+	victim := filepath.Join(tmpdir, "victim")
+	if err := os.Mkdir(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(victim, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	buf := &bytes.Buffer{}
+	tw := tar.NewWriter(buf)
+	for _, hdr := range []*tar.Header{
+		{Name: "inner", Typeflag: tar.TypeDir, Mode: 0o755},
+		{Name: "inner/go_up", Typeflag: tar.TypeSymlink, Linkname: ".."},
+		{Name: "inner/go_up/escape", Typeflag: tar.TypeSymlink, Linkname: "../victim"},
+		{Name: "inner/go_up/escape/newfile", Typeflag: tar.TypeReg, Mode: 0o644},
+	} {
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = tw.Close()
+
+	// Ignore any extraction error: a breakoutError means the escape was
+	// caught; no error means the write was safely redirected within dest.
+	// NoLchown suppresses the ownership call so the test runs without root.
+	_ = Untar(buf, dest, &TarOptions{NoLchown: true})
+
+	// victim/newfile must not exist; its presence proves a breakout.
+	if _, err := os.Lstat(filepath.Join(victim, "newfile")); err == nil {
+		t.Fatal("archive breakout: newfile was written outside extraction root via symlink chain")
+	}
+}
+
 func TestTempArchiveCloseMultipleTimes(t *testing.T) {
 	reader := io.NopCloser(strings.NewReader("hello"))
 	tmpArchive, err := newTempArchive(reader, "")
