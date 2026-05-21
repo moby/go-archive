@@ -585,7 +585,12 @@ func TestTarWithOptions(t *testing.T) {
 func TestTypeXGlobalHeaderDoesNotFail(t *testing.T) {
 	hdr := tar.Header{Typeflag: tar.TypeXGlobalHeader}
 	tmpDir := t.TempDir()
-	err := createTarFile(filepath.Join(tmpDir, "pax_global_header"), tmpDir, &hdr, nil, nil)
+	root, err := os.OpenRoot(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	err = createTarFile(root, "pax_global_header", &hdr, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

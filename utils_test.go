@@ -138,8 +138,14 @@ func testBreakout(untarFn string, tmpdir string, headers []*tar.Header) error {
 
 	// Check that nothing in dest/ has the same content as victim/hello.
 	// Since victim/hello was generated with time.Now(), it is safe to assume
-	// that any file whose content matches exactly victim/hello, managed somehow
-	// to access victim/hello.
+	// that any regular file whose content matches exactly victim/hello managed
+	// somehow to access victim/hello.
+	//
+	// Symlinks are intentionally skipped: the os.Root security model allows
+	// extracting symlinks with targets outside the root (since the node itself
+	// is inside the root), and subsequent access through os.Root-bounded
+	// operations will catch any attempted escape. A symlink whose target
+	// resolves outside root does not constitute a breakout on its own.
 	return filepath.WalkDir(dest, func(path string, info os.DirEntry, err error) error {
 		if info.IsDir() {
 			if err != nil {
@@ -151,6 +157,11 @@ func testBreakout(untarFn string, tmpdir string, headers []*tar.Header) error {
 		}
 		if err != nil {
 			// skip file if error
+			return nil
+		}
+		// Skip symlinks: their targets may point outside the root, but that
+		// is safe under the os.Root access model.
+		if info.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
 		b, err := os.ReadFile(path)

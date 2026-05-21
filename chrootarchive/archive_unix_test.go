@@ -61,7 +61,12 @@ func TestUntarWithMaliciousSymlinks(t *testing.T) {
 
 	err = UntarWithRoot(tee, safe, nil, root)
 	assert.Assert(t, err != nil)
-	assert.ErrorContains(t, err, "open /safe/host-file: no such file or directory")
+	// Bounded extraction via os.Root may fail when opening the destination
+	// itself (the symlink target lies outside the chroot root) rather than
+	// when opening the file inside it. Accept either failure point; the
+	// security property — that the host file is not overwritten — is
+	// verified separately below.
+	assert.ErrorContains(t, err, "no such file or directory")
 
 	// Make sure the "host" file is still in tact
 	// Before the fix the host file would be overwritten
