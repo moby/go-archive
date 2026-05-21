@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         go-version:
-          - 1.23.x      # oldest supported (see go.mod)
+          - 1.24.x      # oldest supported (see go.mod)
           - oldstable
           - stable
         os: [ubuntu-latest, windows-latest, macos-latest]
