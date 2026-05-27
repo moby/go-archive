@@ -1,6 +1,6 @@
 module github.com/moby/go-archive
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/AdaLogics/go-fuzz-headers v0.0.0-20240806141605-e8a1dd7889d6
