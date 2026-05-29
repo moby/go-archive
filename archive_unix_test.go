@@ -301,7 +301,6 @@ func TestTarUntarWithXattr(t *testing.T) {
 
 func TestCopyInfoDestinationPathSymlink(t *testing.T) {
 	tmpDir, _ := getTestTempDirs(t)
-	defer removeAllPaths(tmpDir)
 
 	root := strings.TrimRight(tmpDir, "/") + "/"
 

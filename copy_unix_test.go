@@ -19,19 +19,14 @@ import (
 	"gotest.tools/v3/assert"
 )
 
-func removeAllPaths(paths ...string) {
-	for _, path := range paths {
-		os.RemoveAll(path)
-	}
-}
-
 func getTestTempDirs(t *testing.T) (tmpDirA, tmpDirB string) {
+	tmpDir := t.TempDir()
 	var err error
 
-	tmpDirA, err = os.MkdirTemp("", "archive-copy-test")
+	tmpDirA, err = os.MkdirTemp(tmpDir, "archive-copy-test")
 	assert.NilError(t, err)
 
-	tmpDirB, err = os.MkdirTemp("", "archive-copy-test")
+	tmpDirB, err = os.MkdirTemp(tmpDir, "archive-copy-test")
 	assert.NilError(t, err)
 
 	return tmpDirA, tmpDirB
@@ -140,10 +135,7 @@ func testCopyHelperFSym(t *testing.T, srcPath, dstPath string) (err error) {
 
 // Test for error when SRC does not exist.
 func TestCopyErrSrcNotExists(t *testing.T) {
-	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
-
-	if _, err := CopyInfoSourcePath(filepath.Join(tmpDirA, "file1"), false); !os.IsNotExist(err) {
+	if _, err := CopyInfoSourcePath(filepath.Join(t.TempDir(), "file1"), false); !os.IsNotExist(err) {
 		t.Fatalf("expected IsNotExist error, but got %T: %s", err, err)
 	}
 }
@@ -151,13 +143,12 @@ func TestCopyErrSrcNotExists(t *testing.T) {
 // Test for error when SRC ends in a trailing
 // path separator but it exists as a file.
 func TestCopyErrSrcNotDir(t *testing.T) {
-	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
+	tmpDir := t.TempDir()
 
 	// Load A with some sample files and directories.
-	createSampleDir(t, tmpDirA)
+	createSampleDir(t, tmpDir)
 
-	if _, err := CopyInfoSourcePath(joinTrailingSep(tmpDirA, "file1"), false); !isNotDir(err) {
+	if _, err := CopyInfoSourcePath(joinTrailingSep(tmpDir, "file1"), false); !isNotDir(err) {
 		t.Fatalf("expected IsNotDir error, but got %T: %s", err, err)
 	}
 }
@@ -166,7 +157,6 @@ func TestCopyErrSrcNotDir(t *testing.T) {
 // but the DST parent directory does not exist.
 func TestCopyErrDstParentNotExists(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -212,7 +202,6 @@ func TestCopyErrDstParentNotExists(t *testing.T) {
 // path separator but exists as a file.
 func TestCopyErrDstNotDir(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A and B with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -258,7 +247,6 @@ func TestCopyErrDstNotDir(t *testing.T) {
 func TestCopyLongDstFilename(t *testing.T) {
 	const longName = "a_very_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_long_filename_that_is_101_characters"
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -299,7 +287,6 @@ func TestCopyLongDstFilename(t *testing.T) {
 // file into it.
 func TestCopyCaseA(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -342,7 +329,6 @@ func TestCopyCaseA(t *testing.T) {
 // when copying a single file.
 func TestCopyCaseB(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -375,7 +361,6 @@ func TestCopyCaseB(t *testing.T) {
 // This should overwrite the file at DST with the contents of the source file.
 func TestCopyCaseC(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A and B with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -404,7 +389,6 @@ func TestCopyCaseC(t *testing.T) {
 // This should overwrite the file at DST with the contents of the source file.
 func TestCopyCaseCFSym(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A and B with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -442,7 +426,6 @@ func TestCopyCaseCFSym(t *testing.T) {
 // SRC. Ensure this works whether DST has a trailing path separator or not.
 func TestCopyCaseD(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A and B with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -492,7 +475,6 @@ func TestCopyCaseD(t *testing.T) {
 // SRC. Ensure this works whether DST has a trailing path separator or not.
 func TestCopyCaseDFSym(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A and B with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -544,7 +526,6 @@ func TestCopyCaseDFSym(t *testing.T) {
 // separator or not.
 func TestCopyCaseE(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -588,7 +569,6 @@ func TestCopyCaseE(t *testing.T) {
 // separator or	not.
 func TestCopyCaseEFSym(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -632,7 +612,6 @@ func TestCopyCaseEFSym(t *testing.T) {
 // directory.
 func TestCopyCaseF(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A and B with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -668,7 +647,6 @@ func TestCopyCaseF(t *testing.T) {
 // Ensure this works whether DST has a trailing path separator or not.
 func TestCopyCaseG(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A and B with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -713,7 +691,6 @@ func TestCopyCaseG(t *testing.T) {
 // Ensure this works whether DST has a trailing path separator or not.
 func TestCopyCaseGFSym(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A and B with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -760,7 +737,6 @@ func TestCopyCaseGFSym(t *testing.T) {
 // this works whether DST has a trailing path separator or not.
 func TestCopyCaseH(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -808,7 +784,6 @@ func TestCopyCaseH(t *testing.T) {
 // this works whether DST has a trailing path separator or not.
 func TestCopyCaseHFSym(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -856,7 +831,6 @@ func TestCopyCaseHFSym(t *testing.T) {
 // directory.
 func TestCopyCaseI(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A and B with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -893,7 +867,6 @@ func TestCopyCaseI(t *testing.T) {
 // trailing path separator or not.
 func TestCopyCaseJ(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A and B with some sample files and directories.
 	createSampleDir(t, tmpDirA)
@@ -943,7 +916,6 @@ func TestCopyCaseJ(t *testing.T) {
 // trailing path separator or not.
 func TestCopyCaseJFSym(t *testing.T) {
 	tmpDirA, tmpDirB := getTestTempDirs(t)
-	defer removeAllPaths(tmpDirA, tmpDirB)
 
 	// Load A and B with some sample files and directories.
 	createSampleDir(t, tmpDirA)
