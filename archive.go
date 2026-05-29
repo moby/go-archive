@@ -103,12 +103,12 @@ func IsArchivePath(path string) bool {
 	if err != nil {
 		return false
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	rdr, err := compression.DecompressStream(file)
 	if err != nil {
 		return false
 	}
-	defer rdr.Close()
+	defer func() { _ = rdr.Close() }()
 	r := tar.NewReader(rdr)
 	_, err = r.Next()
 	return err == nil
@@ -129,8 +129,10 @@ func ReplaceFileTarWrapper(inputTarStream io.ReadCloser, mods map[string]TarModi
 	go func() {
 		tarReader := tar.NewReader(inputTarStream)
 		tarWriter := tar.NewWriter(pipeWriter)
-		defer inputTarStream.Close()
-		defer tarWriter.Close()
+		defer func() {
+			_ = tarWriter.Close()
+			_ = inputTarStream.Close()
+		}()
 
 		modify := func(name string, original *tar.Header, modifier TarModifierFunc, tarReader io.Reader) error {
 			header, data, err := modifier(name, original, tarReader)
@@ -164,7 +166,7 @@ func ReplaceFileTarWrapper(inputTarStream io.ReadCloser, mods map[string]TarModi
 				break
 			}
 			if err != nil {
-				pipeWriter.CloseWithError(err)
+				_ = pipeWriter.CloseWithError(err)
 				return
 			}
 
@@ -172,11 +174,11 @@ func ReplaceFileTarWrapper(inputTarStream io.ReadCloser, mods map[string]TarModi
 			if !ok {
 				// No modifiers for this file, copy the header and data
 				if err := tarWriter.WriteHeader(originalHeader); err != nil {
-					pipeWriter.CloseWithError(err)
+					_ = pipeWriter.CloseWithError(err)
 					return
 				}
 				if err := copyWithBuffer(tarWriter, tarReader); err != nil {
-					pipeWriter.CloseWithError(err)
+					_ = pipeWriter.CloseWithError(err)
 					return
 				}
 				continue
@@ -184,7 +186,7 @@ func ReplaceFileTarWrapper(inputTarStream io.ReadCloser, mods map[string]TarModi
 			delete(mods, originalHeader.Name)
 
 			if err := modify(originalHeader.Name, originalHeader, modifier, tarReader); err != nil {
-				pipeWriter.CloseWithError(err)
+				_ = pipeWriter.CloseWithError(err)
 				return
 			}
 		}
@@ -192,12 +194,12 @@ func ReplaceFileTarWrapper(inputTarStream io.ReadCloser, mods map[string]TarModi
 		// Apply the modifiers that haven't matched any files in the archive
 		for name, modifier := range mods {
 			if err := modify(name, nil, modifier, nil); err != nil {
-				pipeWriter.CloseWithError(err)
+				_ = pipeWriter.CloseWithError(err)
 				return
 			}
 		}
 
-		pipeWriter.Close()
+		_ = pipeWriter.Close()
 	}()
 	return pipeReader
 }
@@ -393,7 +395,7 @@ func (ta *tarAppender) addTarFile(path, name string) error {
 		}
 
 		err = copyWithBuffer(ta.TarWriter, file)
-		file.Close()
+		_ = file.Close()
 		if err != nil {
 			return err
 		}
@@ -984,7 +986,7 @@ func untarHandler(tarArchive io.Reader, dest string, options *TarOptions, decomp
 		if err != nil {
 			return err
 		}
-		defer decompressedArchive.Close()
+		defer func() { _ = decompressedArchive.Close() }()
 		r = decompressedArchive
 	}
 
@@ -998,7 +1000,7 @@ func (archiver *Archiver) TarUntar(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer archive.Close()
+	defer func() { _ = archive.Close() }()
 	return archiver.Untar(archive, dst, &TarOptions{
 		IDMap: archiver.IDMapping,
 	})
@@ -1010,7 +1012,7 @@ func (archiver *Archiver) UntarPath(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer archive.Close()
+	defer func() { _ = archive.Close() }()
 	return archiver.Untar(archive, dst, &TarOptions{
 		IDMap: archiver.IDMapping,
 	})
@@ -1070,13 +1072,13 @@ func (archiver *Archiver) CopyFileWithTar(src, dst string) (err error) {
 		defer close(errC)
 
 		errC <- func() error {
-			defer w.Close()
+			defer func() { _ = w.Close() }()
 
 			srcF, err := os.Open(src)
 			if err != nil {
 				return err
 			}
-			defer srcF.Close()
+			defer func() { _ = srcF.Close() }()
 
 			hdr, err := tarheader.FileInfoHeaderNoLookups(srcSt, "")
 			if err != nil {
@@ -1094,7 +1096,7 @@ func (archiver *Archiver) CopyFileWithTar(src, dst string) (err error) {
 			}
 
 			tw := tar.NewWriter(w)
-			defer tw.Close()
+			defer func() { _ = tw.Close() }()
 			if err := tw.WriteHeader(hdr); err != nil {
 				return err
 			}
@@ -1112,7 +1114,7 @@ func (archiver *Archiver) CopyFileWithTar(src, dst string) (err error) {
 
 	err = archiver.Untar(r, filepath.Dir(dst), nil)
 	if err != nil {
-		r.CloseWithError(err)
+		_ = r.CloseWithError(err)
 	}
 	return err
 }

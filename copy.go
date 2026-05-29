@@ -336,12 +336,12 @@ func RebaseArchiveEntries(srcContent io.Reader, oldBase, newBase string) io.Read
 			hdr, err := srcTar.Next()
 			if errors.Is(err, io.EOF) {
 				// Signals end of archive.
-				rebasedTar.Close()
-				w.Close()
+				_ = rebasedTar.Close()
+				_ = w.Close()
 				return
 			}
 			if err != nil {
-				w.CloseWithError(err)
+				_ = w.CloseWithError(err)
 				return
 			}
 
@@ -359,7 +359,7 @@ func RebaseArchiveEntries(srcContent io.Reader, oldBase, newBase string) io.Read
 			}
 
 			if err = rebasedTar.WriteHeader(hdr); err != nil {
-				w.CloseWithError(err)
+				_ = w.CloseWithError(err)
 				return
 			}
 
@@ -374,7 +374,7 @@ func RebaseArchiveEntries(srcContent io.Reader, oldBase, newBase string) io.Read
 			// not be vulnerable to this code consuming memory.
 			//nolint:gosec // G110: Potential DoS vulnerability via decompression bomb (gosec)
 			if _, err = io.Copy(rebasedTar, srcTar); err != nil {
-				w.CloseWithError(err)
+				_ = w.CloseWithError(err)
 				return
 			}
 		}
@@ -408,7 +408,7 @@ func CopyResource(srcPath, dstPath string, followLink bool) error {
 	if err != nil {
 		return err
 	}
-	defer content.Close()
+	defer func() { _ = content.Close() }()
 
 	return CopyTo(content, srcInfo, dstPath)
 }
@@ -427,7 +427,7 @@ func CopyTo(content io.Reader, srcInfo CopyInfo, dstPath string) error {
 	if err != nil {
 		return err
 	}
-	defer copyArchive.Close()
+	defer func() { _ = copyArchive.Close() }()
 
 	options := &TarOptions{
 		NoLchown:             true,

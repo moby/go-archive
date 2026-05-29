@@ -315,7 +315,7 @@ func TestCopyCaseA(t *testing.T) {
 
 	err = fileContentsEqual(t, srcPath, dstPath)
 	assert.NilError(t, err)
-	os.Remove(dstPath)
+	assert.NilError(t, os.Remove(dstPath))
 
 	symlinkPath := filepath.Join(tmpDirA, "symlink3")
 	symlinkPath1 := filepath.Join(tmpDirA, "symlink4")
@@ -327,7 +327,7 @@ func TestCopyCaseA(t *testing.T) {
 
 	err = fileContentsEqual(t, linkTarget, dstPath)
 	assert.NilError(t, err)
-	os.Remove(dstPath)
+	assert.NilError(t, os.Remove(dstPath))
 	if err = testCopyHelperFSym(t, symlinkPath1, dstPath); err != nil {
 		t.Fatalf("unexpected error %T: %s", err, err)
 	}

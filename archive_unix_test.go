@@ -258,7 +258,8 @@ func TestTarUntarWithXattr(t *testing.T) {
 
 	tarball, err := Tar(origin, compression.None)
 	assert.NilError(t, err)
-	defer tarball.Close()
+	defer func() { _ = tarball.Close() }()
+
 	rdr := tar.NewReader(tarball)
 	for {
 		h, err := rdr.Next()
