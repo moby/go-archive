@@ -196,11 +196,7 @@ func TestApplyLayerInvalidSymlink(t *testing.T) {
 }
 
 func TestApplyLayerWhiteouts(t *testing.T) {
-	wd, err := os.MkdirTemp("", "graphdriver-test-whiteouts")
-	if err != nil {
-		return
-	}
-	defer os.RemoveAll(wd)
+	wd := t.TempDir()
 
 	base := []string{
 		".baz",
@@ -285,7 +281,7 @@ func TestApplyLayerWhiteouts(t *testing.T) {
 	}
 
 	for i, tc := range tcases {
-		l, err := makeTestLayer(tc.change)
+		l, err := makeTestLayer(t, tc.change)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -310,53 +306,23 @@ func TestApplyLayerWhiteouts(t *testing.T) {
 	}
 }
 
-type readCloserWrapper struct {
-	io.Reader
-	closer func() error
-}
-
-func (r *readCloserWrapper) Close() error {
-	if r.closer != nil {
-		return r.closer()
-	}
-	return nil
-}
-
-func makeTestLayer(paths []string) (_ io.ReadCloser, retErr error) {
-	tmpDir, err := os.MkdirTemp("", "graphdriver-test-mklayer")
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if retErr != nil {
-			os.RemoveAll(tmpDir)
-		}
-	}()
+func makeTestLayer(t *testing.T, paths []string) (_ io.ReadCloser, retErr error) {
+	t.Helper()
+	tmpDir := t.TempDir()
 	for _, p := range paths {
 		// Source files are always in Unix format. But we use filepath on
-		// creation to be platform agnostic.
+		// creation to be platform-agnostic.
 		if p[len(p)-1] == '/' {
-			if err = os.MkdirAll(filepath.Join(tmpDir, p), 0o700); err != nil {
+			if err := os.MkdirAll(filepath.Join(tmpDir, p), 0o700); err != nil {
 				return nil, err
 			}
 		} else {
-			if err = os.WriteFile(filepath.Join(tmpDir, p), nil, 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(tmpDir, p), nil, 0o600); err != nil {
 				return nil, err
 			}
 		}
 	}
-	archive, err := Tar(tmpDir, compression.None)
-	if err != nil {
-		return nil, err
-	}
-	return &readCloserWrapper{
-		Reader: archive,
-		closer: func() error {
-			err := archive.Close()
-			os.RemoveAll(tmpDir)
-			return err
-		},
-	}, nil
+	return Tar(tmpDir, compression.None)
 }
 
 func readDirContents(root string) ([]string, error) {
