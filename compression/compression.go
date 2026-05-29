@@ -66,7 +66,7 @@ type nopWriteCloser struct {
 func (nopWriteCloser) Close() error { return nil }
 
 var bufioReader32KPool = &sync.Pool{
-	New: func() interface{} { return bufio.NewReaderSize(nil, 32*1024) },
+	New: func() any { return bufio.NewReaderSize(nil, 32*1024) },
 }
 
 type bufferedReader struct {

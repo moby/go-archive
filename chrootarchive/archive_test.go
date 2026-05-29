@@ -88,7 +88,7 @@ func TestChrootUntarWithHugeExcludesList(t *testing.T) {
 	// on most systems when passed via environment or command line arguments
 	excludes := make([]string, 65534)
 	var i rune
-	for i = 0; i < 65534; i++ {
+	for i = range 65534 {
 		excludes[i] = strings.Repeat(string(i), 64)
 	}
 	options.ExcludePatterns = excludes
@@ -106,7 +106,7 @@ func TestChrootUntarEmptyArchive(t *testing.T) {
 func prepareSourceDirectory(targetPath string, makeSymLinks bool) error {
 	fileData := []byte("fooo")
 	numberOfFiles := 10
-	for n := 0; n < numberOfFiles; n++ {
+	for n := range numberOfFiles {
 		fileName := fmt.Sprintf("file-%d", n)
 		if err := os.WriteFile(filepath.Join(targetPath, fileName), fileData, 0o700); err != nil {
 			return err
@@ -309,11 +309,8 @@ type slowEmptyTarReader struct {
 // Read is a slow reader of an empty tar (like the output of "tar c --files-from /dev/null")
 func (s *slowEmptyTarReader) Read(p []byte) (int, error) {
 	time.Sleep(100 * time.Millisecond)
-	count := s.chunkSize
-	if len(p) < s.chunkSize {
-		count = len(p)
-	}
-	for i := 0; i < count; i++ {
+	count := min(len(p), s.chunkSize)
+	for i := range count {
 		p[i] = 0
 	}
 	s.offset += count

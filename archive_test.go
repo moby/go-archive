@@ -624,7 +624,7 @@ func TestUntarUstarGnuConflict(t *testing.T) {
 
 func prepareUntarSourceDirectory(numberOfFiles int, targetPath string, makeLinks bool) (int, error) {
 	fileData := []byte("fooo")
-	for n := 0; n < numberOfFiles; n++ {
+	for n := range numberOfFiles {
 		fileName := fmt.Sprintf("file-%d", n)
 		if err := os.WriteFile(filepath.Join(targetPath, fileName), fileData, 0o700); err != nil {
 			return 0, err
@@ -928,7 +928,7 @@ func TestTempArchiveCloseMultipleTimes(t *testing.T) {
 	if n != 5 {
 		t.Fatalf("Expected to read 5 bytes. Read %d instead", n)
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err = tmpArchive.Close(); err != nil {
 			t.Fatalf("i=%d. Unexpected error closing temp archive: %v", i, err)
 		}

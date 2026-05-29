@@ -246,7 +246,7 @@ func TestDisablePigz(t *testing.T) {
 	// wrapped in closer to cancel contex and release buffer to pool
 	wrapper := r.(*readCloserWrapper)
 
-	assert.Equal(t, reflect.TypeOf(wrapper.Reader), reflect.TypeOf(&gzip.Reader{}))
+	assert.Equal(t, reflect.TypeOf(wrapper.Reader), reflect.TypeFor[*gzip.Reader]())
 }
 
 func TestPigz(t *testing.T) {
@@ -259,9 +259,9 @@ func TestPigz(t *testing.T) {
 		t.Log("Tested whether Pigz is used, as it installed")
 		// For the command wait wrapper
 		cmdWaitCloserWrapper := wrapper.Reader.(*readCloserWrapper)
-		assert.Equal(t, reflect.TypeOf(cmdWaitCloserWrapper.Reader), reflect.TypeOf(&io.PipeReader{}))
+		assert.Equal(t, reflect.TypeOf(cmdWaitCloserWrapper.Reader), reflect.TypeFor[*io.PipeReader]())
 	} else {
 		t.Log("Tested whether Pigz is not used, as it not installed")
-		assert.Equal(t, reflect.TypeOf(wrapper.Reader), reflect.TypeOf(&gzip.Reader{}))
+		assert.Equal(t, reflect.TypeOf(wrapper.Reader), reflect.TypeFor[*gzip.Reader]())
 	}
 }

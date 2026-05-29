@@ -40,7 +40,7 @@ func TestGenerateEmptyFile(t *testing.T) {
 	if len(actualFiles) != len(expectedFiles) {
 		t.Fatalf("Number of expected file %d, got %d.", len(expectedFiles), len(actualFiles))
 	}
-	for i := 0; i < len(expectedFiles); i++ {
+	for i := range expectedFiles {
 		actual := actualFiles[i]
 		expected := expectedFiles[i]
 		if actual[0] != expected[0] {
@@ -82,7 +82,7 @@ func TestGenerateWithContent(t *testing.T) {
 	if len(actualFiles) != len(expectedFiles) {
 		t.Fatalf("Number of expected file %d, got %d.", len(expectedFiles), len(actualFiles))
 	}
-	for i := 0; i < len(expectedFiles); i++ {
+	for i := range expectedFiles {
 		actual := actualFiles[i]
 		expected := expectedFiles[i]
 		if actual[0] != expected[0] {

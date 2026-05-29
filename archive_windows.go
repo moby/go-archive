@@ -41,7 +41,7 @@ func chmodTarEntry(perm os.FileMode) os.FileMode {
 	return perm | 0o111
 }
 
-func getInodeFromStat(stat interface{}) (uint64, error) {
+func getInodeFromStat(stat any) (uint64, error) {
 	// do nothing. no notion of Inode in stat on Windows
 	return 0, nil
 }
@@ -56,7 +56,7 @@ func handleLChmod(hdr *tar.Header, path string, hdrInfo os.FileInfo) error {
 	return nil
 }
 
-func getFileUIDGID(stat interface{}) (int, int, error) {
+func getFileUIDGID(stat any) (int, int, error) {
 	// no notion of file ownership mapping yet on Windows
 	return 0, 0, nil
 }
