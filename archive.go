@@ -316,21 +316,23 @@ func (ta *tarAppender) addTarFile(path, name string) error {
 		return err
 	}
 
-	// if it's not a directory and has more than 1 link,
-	// it's hard linked, so set the type flag accordingly
-	if !fi.IsDir() && hasHardlinks(fi) {
-		inode, err := getInodeFromStat(fi.Sys())
+	// if it's not a directory and has more than 1 link, it's hard linked,
+	// so set the type flag accordingly.
+	if !fi.IsDir() {
+		multiLink, inode, err := hardlinkInfo(path, fi)
 		if err != nil {
 			return err
 		}
-		// a link should have a name that it links too
-		// and that linked name should be first in the tar archive
-		if oldpath, ok := ta.SeenFiles[inode]; ok {
-			hdr.Typeflag = tar.TypeLink
-			hdr.Linkname = oldpath
-			hdr.Size = 0 // This Must be here for the writer math to add up!
-		} else {
-			ta.SeenFiles[inode] = name
+		if multiLink {
+			// a link should have a name that it links too
+			// and that linked name should be first in the tar archive
+			if oldpath, ok := ta.SeenFiles[inode]; ok {
+				hdr.Typeflag = tar.TypeLink
+				hdr.Linkname = oldpath
+				hdr.Size = 0 // This Must be here for the writer math to add up!
+			} else {
+				ta.SeenFiles[inode] = name
+			}
 		}
 	}
 

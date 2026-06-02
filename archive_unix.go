@@ -42,6 +42,19 @@ func getInodeFromStat(stat interface{}) (uint64, error) {
 	return s.Ino, nil
 }
 
+// hardlinkInfo reports whether fi refers to a file with more than one hard
+// link, and returns an identifier suitable as a SeenFiles key.
+func hardlinkInfo(_ string, fi os.FileInfo) (bool, uint64, error) {
+	if !hasHardlinks(fi) {
+		return false, 0, nil
+	}
+	inode, err := getInodeFromStat(fi.Sys())
+	if err != nil {
+		return false, 0, err
+	}
+	return true, inode, nil
+}
+
 func getFileUIDGID(stat interface{}) (int, int, error) {
 	s, ok := stat.(*syscall.Stat_t)
 
