@@ -497,13 +497,14 @@ func createTarFile(root *os.Root, path string, hdr *tar.Header, reader io.Reader
 		}
 
 	case tar.TypeSymlink:
-		// os.Root.Symlink rejects absolute symlink targets (e.g. /usr/lib),
-		// which are common and legitimate in container images. Use os.Symlink
-		// with absPath (safely resolved via safeResolve to prevent TOCTOU
-		// symlink attacks) so the symlink node itself is always created
-		// within the root. The symlink target is stored as-is in the symlink.
-		// Containment applies when the symlink is followed, not at creation.
-		if err := os.Symlink(hdr.Linkname, absPath); err != nil {
+		// os.Root.Symlink contains the symlink's location (newname) within
+		// root but stores the target (oldname) verbatim, so absolute targets
+		// such as /usr/lib -- common and legitimate in container images -- are
+		// preserved rather than rejected. The symlink node is therefore always
+		// created within root via openat(2) semantics, without resolving to an
+		// absolute path; containment applies when the symlink is followed, not
+		// at creation.
+		if err := root.Symlink(hdr.Linkname, path); err != nil {
 			return err
 		}
 
