@@ -841,17 +841,11 @@ loop:
 			continue
 		}
 
-		// Normalize name: root with "/" to eliminate leading ".."
-		// components, then strip the leading "/" for a root-relative path.
-		hdr.Name = strings.TrimLeft(path.Join("/", hdr.Name), "/")
-		if hdr.Name == "" {
-			hdr.Name = "."
-		}
-		// Defence-in-depth: reject any name that, after normalisation,
-		// would still resolve outside the extraction root (absolute, empty,
-		// or containing ".." components). This should be unreachable after
-		// the normalisation above; it also serves as an explicit sanitiser
-		// that static analysers recognise.
+		// Strip a leading "/" so absolute entries stay root-relative, then
+		// Clean while keeping any ".." so the IsLocal check below rejects
+		// escapes instead of silently rewriting them.
+		hdr.Name = path.Clean(strings.TrimLeft(hdr.Name, "/"))
+		// Reject names that escape the extraction root (absolute or "..").
 		if !filepath.IsLocal(hdr.Name) {
 			return breakoutError(fmt.Errorf("invalid entry name %q", hdr.Name))
 		}
