@@ -70,6 +70,14 @@ type (
 		// were probably in the archive for a reason, so set this option at
 		// your own peril.
 		BestEffortXattrs bool
+		// ConfineSymlinksToRoot scope-confines symlink resolution to the
+		// extraction root during unpack, emulating the containment a chroot
+		// provides. It is set by the chrootarchive subpackage on Windows, where
+		// there is no chroot (see moby/moby#47107): an "escaping" symlink is
+		// created rather than rejected, and any entry written through it is
+		// resolved back inside the root instead of breaking out. It has no
+		// effect on packing.
+		ConfineSymlinksToRoot bool
 	}
 )
 
@@ -406,6 +414,7 @@ func createTarFile(path, extractDir string, hdr *tar.Header, reader io.Reader, o
 	var (
 		Lchown                     = true
 		inUserns, bestEffortXattrs bool
+		confineSymlinks            bool
 		chownOpts                  *ChownOpts
 	)
 
@@ -415,6 +424,7 @@ func createTarFile(path, extractDir string, hdr *tar.Header, reader io.Reader, o
 		inUserns = opts.InUserNS // TODO(thaJeztah): consider deprecating opts.InUserNS and detect locally.
 		chownOpts = opts.ChownOpts
 		bestEffortXattrs = opts.BestEffortXattrs
+		confineSymlinks = opts.ConfineSymlinksToRoot
 	}
 
 	// hdr.Mode is in linux format, which we can use for sycalls,
@@ -484,7 +494,11 @@ func createTarFile(path, extractDir string, hdr *tar.Header, reader io.Reader, o
 
 		// the reason we don't need to check symlinks in the path (with FollowSymlinkInScope) is because
 		// that symlink would first have to be created, which would be caught earlier, at this very check:
-		if !strings.HasPrefix(targetPath, extractDir) {
+		//
+		// When confineSymlinks is set (chrootarchive on Windows), an escaping
+		// symlink is created rather than rejected; secureJoinScope keeps writes
+		// through it contained, emulating the Linux chroot behaviour.
+		if !confineSymlinks && !strings.HasPrefix(targetPath, extractDir) {
 			return breakoutError(fmt.Errorf("invalid symlink %q -> %q", path, hdr.Linkname))
 		}
 		if err := os.Symlink(hdr.Linkname, path); err != nil {
@@ -845,8 +859,18 @@ loop:
 			return err
 		}
 
-		// #nosec G305 -- The joined path is checked for path traversal.
-		path := filepath.Join(dest, hdr.Name)
+		// #nosec G305 -- The joined path is checked for path traversal below;
+		// when ConfineSymlinksToRoot is set, symlink components are additionally
+		// resolved in scope so writes cannot escape dest (secureJoinScope).
+		var path string
+		if options.ConfineSymlinksToRoot {
+			path, err = secureJoinScope(dest, hdr.Name)
+			if err != nil {
+				return err
+			}
+		} else {
+			path = filepath.Join(dest, hdr.Name)
+		}
 		rel, err := filepath.Rel(dest, path)
 		if err != nil {
 			return err
@@ -931,7 +955,16 @@ func createImpliedDirectories(dest string, hdr *tar.Header, options *TarOptions)
 	// Not the root directory, ensure that the parent directory exists
 	if !strings.HasSuffix(hdr.Name, string(os.PathSeparator)) {
 		parent := filepath.Dir(hdr.Name)
-		parentPath := filepath.Join(dest, parent)
+		var parentPath string
+		if options.ConfineSymlinksToRoot {
+			var err error
+			parentPath, err = secureJoinScope(dest, parent)
+			if err != nil {
+				return err
+			}
+		} else {
+			parentPath = filepath.Join(dest, parent)
+		}
 		if _, err := os.Lstat(parentPath); err != nil && os.IsNotExist(err) {
 			// RootPair() is confined inside this loop as most cases will not require a call, so we can spend some
 			// unneeded function calls in the uncommon case to encapsulate logic -- implied directories are a niche

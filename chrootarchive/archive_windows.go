@@ -29,6 +29,15 @@ func invokeUnpack(decompressedArchive io.ReadCloser, dest string, options *archi
 	// Windows is different to Linux here because Windows does not support
 	// chroot. Hence there is no point sandboxing a chrooted process to
 	// do the unpack. We call inline instead within the daemon process.
+	//
+	// Because there is no chroot to contain the extraction, confine symlink
+	// resolution to the extraction root so that an "escaping" symlink in the
+	// archive cannot be used to break out (moby/moby#47107). This mirrors the
+	// containment the Linux path gets from chroot.
+	if options == nil {
+		options = &archive.TarOptions{}
+	}
+	options.ConfineSymlinksToRoot = true
 	return archive.Unpack(decompressedArchive, addLongPathPrefix(dest), options)
 }
 
