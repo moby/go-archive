@@ -60,9 +60,9 @@ func TestChmodTarEntry(t *testing.T) {
 }
 
 func TestTarWithHardLink(t *testing.T) {
-	origin, err := os.MkdirTemp("", "docker-test-tar-hardlink")
+	tmpDir := t.TempDir()
+	origin, err := os.MkdirTemp(tmpDir, "docker-test-tar-hardlink")
 	assert.NilError(t, err)
-	defer os.RemoveAll(origin)
 
 	err = os.WriteFile(filepath.Join(origin, "1"), []byte("hello world"), 0o700)
 	assert.NilError(t, err)
@@ -79,9 +79,8 @@ func TestTarWithHardLink(t *testing.T) {
 		t.Skipf("skipping since hardlinks don't work here; expected 2 links, got %d", i1)
 	}
 
-	dest, err := os.MkdirTemp("", "docker-test-tar-hardlink-dest")
+	dest, err := os.MkdirTemp(tmpDir, "docker-test-tar-hardlink-dest")
 	assert.NilError(t, err)
-	defer os.RemoveAll(dest)
 
 	// we'll do this in two steps to separate failure
 	fh, err := Tar(origin, compression.None)
@@ -105,12 +104,10 @@ func TestTarWithHardLink(t *testing.T) {
 }
 
 func TestTarWithHardLinkAndRebase(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "docker-test-tar-hardlink-rebase")
-	assert.NilError(t, err)
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	origin := filepath.Join(tmpDir, "origin")
-	err = os.Mkdir(origin, 0o700)
+	err := os.Mkdir(origin, 0o700)
 	assert.NilError(t, err)
 
 	err = os.WriteFile(filepath.Join(origin, "1"), []byte("hello world"), 0o700)
@@ -154,9 +151,7 @@ func TestUntarParentPathPermissions(t *testing.T) {
 	w := tar.NewWriter(buf)
 	err := w.WriteHeader(&tar.Header{Name: "foo/bar"})
 	assert.NilError(t, err)
-	tmpDir, err := os.MkdirTemp("", t.Name())
-	assert.NilError(t, err)
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 	err = Untar(buf, tmpDir, nil)
 	assert.NilError(t, err)
 
@@ -194,10 +189,10 @@ func getInode(path string) (uint64, error) {
 func TestTarWithBlockCharFifo(t *testing.T) {
 	skip.If(t, os.Getuid() != 0, "skipping test that requires root")
 	skip.If(t, userns.RunningInUserNS(), "skipping test that requires initial userns")
-	origin, err := os.MkdirTemp("", "docker-test-tar-hardlink")
+	tmpDir := t.TempDir()
+	origin, err := os.MkdirTemp(tmpDir, "docker-test-tar-hardlink")
 	assert.NilError(t, err)
 
-	defer os.RemoveAll(origin)
 	err = os.WriteFile(filepath.Join(origin, "1"), []byte("hello world"), 0o700)
 	assert.NilError(t, err)
 
@@ -208,9 +203,8 @@ func TestTarWithBlockCharFifo(t *testing.T) {
 	err = mknod(filepath.Join(origin, "4"), unix.S_IFIFO, unix.Mkdev(uint32(12), uint32(5)))
 	assert.NilError(t, err)
 
-	dest, err := os.MkdirTemp("", "docker-test-tar-hardlink-dest")
+	dest, err := os.MkdirTemp(tmpDir, "docker-test-tar-hardlink-dest")
 	assert.NilError(t, err)
-	defer os.RemoveAll(dest)
 
 	// we'll do this in two steps to separate failure
 	fh, err := Tar(origin, compression.None)
@@ -242,9 +236,10 @@ func TestTarUntarWithXattr(t *testing.T) {
 		t.Skip("getcap not installed")
 	}
 
-	origin, err := os.MkdirTemp("", "docker-test-untar-origin")
+	tmpDir := t.TempDir()
+	origin, err := os.MkdirTemp(tmpDir, "docker-test-untar-origin")
 	assert.NilError(t, err)
-	defer os.RemoveAll(origin)
+
 	err = os.WriteFile(filepath.Join(origin, "1"), []byte("hello world"), 0o700)
 	assert.NilError(t, err)
 
@@ -258,7 +253,8 @@ func TestTarUntarWithXattr(t *testing.T) {
 
 	tarball, err := Tar(origin, compression.None)
 	assert.NilError(t, err)
-	defer tarball.Close()
+	defer func() { _ = tarball.Close() }()
+
 	rdr := tar.NewReader(tarball)
 	for {
 		h, err := rdr.Next()
@@ -300,7 +296,6 @@ func TestTarUntarWithXattr(t *testing.T) {
 
 func TestCopyInfoDestinationPathSymlink(t *testing.T) {
 	tmpDir, _ := getTestTempDirs(t)
-	defer removeAllPaths(tmpDir)
 
 	root := strings.TrimRight(tmpDir, "/") + "/"
 

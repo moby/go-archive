@@ -661,7 +661,10 @@ func BenchmarkTarUntar(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		os.RemoveAll(target)
+		err = os.RemoveAll(target)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -687,7 +690,10 @@ func BenchmarkTarUntarWithLinks(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		os.RemoveAll(target)
+		err = os.RemoveAll(target)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
