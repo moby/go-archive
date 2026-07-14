@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -345,5 +346,30 @@ func TestCopyInfoDestinationPathSymlink(t *testing.T) {
 		ci, err := CopyInfoDestinationPath(p)
 		assert.Check(t, err)
 		assert.Check(t, is.DeepEqual(info.expected, ci))
+	}
+}
+
+func TestHandleTarTypeBlockCharFifoDeviceRange(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		devmajor int64
+		devminor int64
+	}{
+		{"major above uint32", math.MaxUint32 + 1, 0},
+		{"minor above uint32", 0, math.MaxUint32 + 1},
+		{"negative major", -1, 0},
+		{"negative minor", 0, -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hdr := &tar.Header{
+				Typeflag: tar.TypeBlock,
+				Devmajor: tc.devmajor,
+				Devminor: tc.devminor,
+			}
+			err := handleTarTypeBlockCharFifo(hdr, filepath.Join(t.TempDir(), "dev"))
+			if !errors.Is(err, errInvalidArchive) {
+				t.Fatalf("expected errInvalidArchive for %d:%d, got %v", tc.devmajor, tc.devminor, err)
+			}
+		})
 	}
 }
