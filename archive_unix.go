@@ -5,6 +5,8 @@ package archive
 import (
 	"archive/tar"
 	"errors"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,8 @@ import (
 
 	"golang.org/x/sys/unix"
 )
+
+var errInvalidArchive = errors.New("invalid archive")
 
 // addLongPathPrefix adds the Windows long path prefix to the path provided if
 // it does not already have it. It is a no-op on platforms other than Windows.
@@ -65,6 +69,16 @@ func handleTarTypeBlockCharFifo(hdr *tar.Header, path string) error {
 		mode |= unix.S_IFCHR
 	case tar.TypeFifo:
 		mode |= unix.S_IFIFO
+	}
+
+	// Devmajor and Devminor come straight from the (untrusted) tar header as
+	// int64, but Mkdev only takes uint32. Casting a value that does not fit
+	// silently truncates it, so the node created on disk would carry a
+	// different major/minor than the header declares. Reject those instead of
+	// creating a mismatched device.
+	if hdr.Devmajor < 0 || hdr.Devmajor > math.MaxUint32 ||
+		hdr.Devminor < 0 || hdr.Devminor > math.MaxUint32 {
+		return fmt.Errorf("device number %d:%d for %q out of range: %w", hdr.Devmajor, hdr.Devminor, hdr.Name, errInvalidArchive)
 	}
 
 	return mknod(path, mode, unix.Mkdev(uint32(hdr.Devmajor), uint32(hdr.Devminor)))
