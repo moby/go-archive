@@ -33,7 +33,7 @@ func chmodTarEntry(perm os.FileMode) os.FileMode {
 	return perm // noop for unix as golang APIs provide perm bits correctly
 }
 
-func getInodeFromStat(stat interface{}) (uint64, error) {
+func getInodeFromStat(stat any) (uint64, error) {
 	s, ok := stat.(*syscall.Stat_t)
 	if !ok {
 		// FIXME(thaJeztah): this should likely return an error; see https://github.com/moby/moby/pull/49493#discussion_r1979152897
@@ -42,7 +42,7 @@ func getInodeFromStat(stat interface{}) (uint64, error) {
 	return s.Ino, nil
 }
 
-func getFileUIDGID(stat interface{}) (int, int, error) {
+func getFileUIDGID(stat any) (int, int, error) {
 	s, ok := stat.(*syscall.Stat_t)
 
 	if !ok {

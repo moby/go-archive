@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -217,8 +218,8 @@ func (info *FileInfo) LookUp(path string) *FileInfo {
 		return info
 	}
 
-	pathElements := strings.Split(path, string(os.PathSeparator))
-	for _, elem := range pathElements {
+	pathElements := strings.SplitSeq(path, string(os.PathSeparator))
+	for elem := range pathElements {
 		if elem != "" {
 			child := parent.children[elem]
 			if child == nil {
@@ -256,9 +257,7 @@ func (info *FileInfo) addChanges(oldInfo *FileInfo, changes *[]Change) {
 	// otherwise any previous delete/change is considered recursive
 	oldChildren := make(map[string]*FileInfo)
 	if oldInfo != nil && info.isDir() {
-		for k, v := range oldInfo.children {
-			oldChildren[k] = v
-		}
+		maps.Copy(oldChildren, oldInfo.children)
 	}
 
 	for name, newChild := range info.children {

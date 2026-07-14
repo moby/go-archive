@@ -22,7 +22,7 @@ var (
 )
 
 var copyPool = sync.Pool{
-	New: func() interface{} { s := make([]byte, 32*1024); return &s },
+	New: func() any { s := make([]byte, 32*1024); return &s },
 }
 
 func copyWithBuffer(dst io.Writer, src io.Reader) error {
