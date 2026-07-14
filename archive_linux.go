@@ -20,7 +20,7 @@ func getWhiteoutConverter(format WhiteoutFormat) tarWhiteoutConverter {
 
 type overlayWhiteoutConverter struct{}
 
-func (overlayWhiteoutConverter) ConvertWrite(hdr *tar.Header, path string, fi os.FileInfo) (wo *tar.Header, _ error) {
+func (overlayWhiteoutConverter) ConvertWrite(hdr *tar.Header, filePath string, fi os.FileInfo) (wo *tar.Header, _ error) {
 	// convert whiteouts to AUFS format
 	if fi.Mode()&os.ModeCharDevice != 0 && hdr.Devmajor == 0 && hdr.Devminor == 0 {
 		// we just rename the file and make it normal
@@ -42,7 +42,7 @@ func (overlayWhiteoutConverter) ConvertWrite(hdr *tar.Header, path string, fi os
 	}
 
 	// convert opaque dirs to AUFS format by writing an empty file with the prefix
-	opaque, err := lgetxattr(path, opaqueXattrName)
+	opaque, err := lgetxattr(filePath, opaqueXattrName)
 	if err != nil {
 		return nil, err
 	}
@@ -68,9 +68,9 @@ func (overlayWhiteoutConverter) ConvertWrite(hdr *tar.Header, path string, fi os
 	}, nil
 }
 
-func (c overlayWhiteoutConverter) ConvertRead(hdr *tar.Header, path string) (bool, error) {
-	base := filepath.Base(path)
-	dir := filepath.Dir(path)
+func (c overlayWhiteoutConverter) ConvertRead(hdr *tar.Header, filePath string) (bool, error) {
+	base := filepath.Base(filePath)
+	dir := filepath.Dir(filePath)
 
 	// if a directory is marked as opaque by the AUFS special file, we need to translate that to overlay
 	if base == WhiteoutOpaqueDir {
