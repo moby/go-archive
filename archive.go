@@ -345,7 +345,7 @@ func (ta *tarAppender) addTarFile(srcPath, archivePath string) error {
 	// handle re-mapping container ID mappings back to host ID mappings before
 	// writing tar headers/files. We skip whiteout files because they were written
 	// by the kernel and already have proper ownership relative to the host
-	if !isOverlayWhiteout && !strings.HasPrefix(filepath.Base(hdr.Name), WhiteoutPrefix) && !ta.IdentityMapping.Empty() {
+	if !isOverlayWhiteout && !strings.HasPrefix(path.Base(hdr.Name), WhiteoutPrefix) && !ta.IdentityMapping.Empty() {
 		uid, gid, err := getFileUIDGID(fi.Sys())
 		if err != nil {
 			return err
@@ -482,13 +482,18 @@ func createTarFile(dstPath, extractDir string, hdr *tar.Header, reader io.Reader
 		}
 
 	case tar.TypeSymlink:
-		// 	path 				-> hdr.Linkname = targetPath
-		// e.g. /extractDir/path/to/symlink 	-> ../2/file	= /extractDir/path/2/file
-		targetPath := filepath.Join(filepath.Dir(dstPath), hdr.Linkname) // #nosec G305 -- The target path is checked for path traversal.
+		// dstPath is the symlink path being created.
+		// hdr.Linkname is the symlink target as stored in the tar header.
+		// Example:
+		//   /extractDir/path/to/symlink -> ../2/file
+		// resolves for validation to:
+		//   /extractDir/path/2/file
+		targetPath := filepath.Join(filepath.Dir(dstPath), filepath.FromSlash(hdr.Linkname)) // #nosec G305 -- The target path is checked for path traversal.
 
 		// the reason we don't need to check symlinks in the path (with FollowSymlinkInScope) is because
 		// that symlink would first have to be created, which would be caught earlier, at this very check:
-		if !strings.HasPrefix(targetPath, extractDir) {
+		rel, err := filepath.Rel(extractDir, targetPath)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return breakoutError(fmt.Errorf("invalid symlink %q -> %q", dstPath, hdr.Linkname))
 		}
 		if err := os.Symlink(hdr.Linkname, dstPath); err != nil {
@@ -551,7 +556,7 @@ func createTarFile(dstPath, extractDir string, hdr *tar.Header, reader io.Reader
 
 	// chtimes doesn't support a NOFOLLOW flag atm
 	if hdr.Typeflag == tar.TypeLink {
-		if fi, err := os.Lstat(hdr.Linkname); err == nil && (fi.Mode()&os.ModeSymlink == 0) {
+		if fi, err := os.Lstat(filepath.FromSlash(hdr.Linkname)); err == nil && (fi.Mode()&os.ModeSymlink == 0) {
 			if err := chtimes(dstPath, aTime, mTime); err != nil {
 				return err
 			}
@@ -795,7 +800,8 @@ func (t *Tarballer) Do() {
 				relFilePath = strings.Replace(relFilePath, include, replacement, 1)
 			}
 
-			if err := ta.addTarFile(filePath, relFilePath); err != nil {
+			archivePath := filepath.ToSlash(relFilePath)
+			if err := ta.addTarFile(filePath, archivePath); err != nil {
 				log.G(context.TODO()).Errorf("Can't add file %s to tar: %s", filePath, err)
 				// if pipe is broken, stop writing tar stream to it
 				if errors.Is(err, io.ErrClosedPipe) {
