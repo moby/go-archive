@@ -31,7 +31,7 @@ func (overlayWhiteoutConverter) ConvertWrite(hdr *tar.Header, path string, fi os
 		hdr.Size = 0
 	}
 
-	if fi.Mode()&os.ModeDir == 0 {
+	if !fi.IsDir() {
 		// FIXME(thaJeztah): return a sentinel error instead of nil, nil
 		return nil, nil
 	}
