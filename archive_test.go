@@ -717,6 +717,87 @@ func TestUntarInvalidFilenames(t *testing.T) {
 	}
 }
 
+// TestUntarParentTraversalContained verifies that entries whose names traverse
+// above the destination (including a bare "..") are rejected and never write
+// into the destination's parent. Regression test for the "write to the parent
+// of the extraction root" breakout.
+func TestUntarParentTraversalContained(t *testing.T) {
+	t.Skip("FIXME: currently failing: enable once https://github.com/moby/go-archive/pull/45 is merged")
+	for _, tc := range []struct {
+		name  string
+		entry string
+	}{
+		{name: "bare parent", entry: ".."},
+		{name: "parent child", entry: "../pwned"},
+		{name: "nested parent", entry: "../../pwned"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := t.TempDir()
+			dest := filepath.Join(base, "dest")
+			assert.NilError(t, os.Mkdir(dest, 0o755))
+
+			var buf bytes.Buffer
+			tw := tar.NewWriter(&buf)
+			assert.NilError(t, tw.WriteHeader(&tar.Header{
+				Name:     tc.entry,
+				Typeflag: tar.TypeReg,
+				Mode:     0o644,
+				Size:     int64(len("bad")),
+			}))
+			_, err := tw.Write([]byte("bad"))
+			assert.NilError(t, err)
+			assert.NilError(t, tw.Close())
+
+			// Untar must reject parent-traversal entries; regardless,
+			// nothing may be written above dest.
+			err = Untar(&buf, dest, &TarOptions{NoLchown: true})
+			assert.ErrorType(t, err, &breakoutErr{})
+
+			// dest's parent must still contain only dest.
+			entries, err := os.ReadDir(base)
+			assert.NilError(t, err)
+			assert.Equal(t, len(entries), 1, "unexpected escape into parent: %v", entries)
+			assert.Equal(t, entries[0].Name(), "dest")
+		})
+	}
+}
+
+// TestUntarSiblingPrefixContained verifies that a symlink whose target is a
+// sibling directory sharing the destination's path prefix (dest "base/dest",
+// sibling "base/dest-evil") cannot be written through. Regression test for the
+// old string-prefix (HasPrefix) containment check, which treated such a sibling
+// as inside the destination.
+func TestUntarSiblingPrefixContained(t *testing.T) {
+	t.Skip("FIXME: currently failing: enable once https://github.com/moby/go-archive/pull/45 is merged")
+	base := t.TempDir()
+	dest := filepath.Join(base, "dest")
+	assert.NilError(t, os.Mkdir(dest, 0o755))
+	// Prefix-sharing sibling with a sentinel file.
+	evil := filepath.Join(base, "dest-evil")
+	assert.NilError(t, os.Mkdir(evil, 0o755))
+
+	assert.NilError(t, os.WriteFile(filepath.Join(evil, "secret"), []byte("secret"), 0o600))
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	// A hardlink whose target resolves to the prefix-sharing sibling. The old
+	// strings.HasPrefix check accepted this because "base/dest-evil/secret"
+	// starts with "base/dest".
+	assert.NilError(t, tw.WriteHeader(&tar.Header{
+		Name:     "grab",
+		Typeflag: tar.TypeLink,
+		Linkname: "../dest-evil/secret",
+		Mode:     0o644,
+	}))
+	assert.NilError(t, tw.Close())
+
+	_ = Untar(&buf, dest, &TarOptions{NoLchown: true}) // may error; we only require containment
+
+	// No hardlink to the sibling's secret may be created inside dest.
+	_, statErr := os.Stat(filepath.Join(dest, "grab"))
+	assert.ErrorIs(t, statErr, os.ErrNotExist, "hardlink to prefix-sibling created")
+}
+
 func TestUntarHardlinkToSymlink(t *testing.T) {
 	skip.If(t, runtime.GOOS != "windows" && os.Getuid() != 0, "skipping test that requires root")
 	for i, headers := range [][]*tar.Header{
