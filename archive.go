@@ -296,6 +296,7 @@ func canonicalTarName(name string, isDir bool) string {
 
 // addTarFile adds to the tar archive a file from `srcPath` as `name`
 func (ta *tarAppender) addTarFile(srcPath, archivePath string) error {
+	archivePath = filepath.ToSlash(archivePath)
 	fi, err := os.Lstat(srcPath)
 	if err != nil {
 		return err
@@ -332,7 +333,7 @@ func (ta *tarAppender) addTarFile(srcPath, archivePath string) error {
 			hdr.Linkname = oldpath
 			hdr.Size = 0 // This Must be here for the writer math to add up!
 		} else {
-			ta.SeenFiles[inode] = archivePath
+			ta.SeenFiles[inode] = hdr.Name
 		}
 	}
 
