@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -925,11 +926,14 @@ loop:
 // not already exist. This is possible as the tar format supports 'implicit' directories, where their existence is
 // defined by the paths of files in the tar, but there are no header entries for the directories themselves, and thus
 // we most both create them and choose metadata like permissions.
+//
+// hdr.Name is a tar header path, not a host filesystem path, and therefore uses
+// POSIX ('/') path semantics regardless of the operating system. The caller
+// must pass a normalized tar header path.
 func createImpliedDirectories(dest string, hdr *tar.Header, options *TarOptions) error {
 	// For non-directory entries, ensure that the parent directory exists.
 	if hdr.Typeflag != tar.TypeDir {
-		parent := filepath.Dir(hdr.Name)
-		parentPath := filepath.Join(dest, parent)
+		parentPath := filepath.Join(dest, filepath.FromSlash(path.Dir(hdr.Name)))
 		if _, err := os.Lstat(parentPath); err != nil && os.IsNotExist(err) {
 			// RootPair() is confined inside this loop as most cases will not require a call, so we can spend some
 			// unneeded function calls in the uncommon case to encapsulate logic -- implied directories are a niche
