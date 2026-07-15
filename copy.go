@@ -319,7 +319,10 @@ func PrepareArchiveCopy(srcContent io.Reader, srcInfo, dstInfo CopyInfo) (dstDir
 // RebaseArchiveEntries rewrites the given srcContent archive replacing
 // an occurrence of oldBase with newBase at the beginning of entry names.
 func RebaseArchiveEntries(srcContent io.Reader, oldBase, newBase string) io.ReadCloser {
-	if oldBase == string(os.PathSeparator) {
+	oldBase = filepath.ToSlash(oldBase)
+	newBase = filepath.ToSlash(newBase)
+
+	if oldBase == "/" {
 		// If oldBase specifies the root directory, use an empty string as
 		// oldBase instead so that newBase doesn't replace the path separator
 		// that all paths will start with.
