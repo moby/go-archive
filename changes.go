@@ -400,7 +400,7 @@ func ExportChanges(dir string, changes []Change, idMap user.IdentityMapping) (io
 				whiteOut := filepath.Join(whiteOutDir, WhiteoutPrefix+whiteOutBase)
 				timestamp := time.Now()
 				hdr := &tar.Header{
-					Name:       whiteOut[1:],
+					Name:       strings.TrimPrefix(filepath.ToSlash(whiteOut), "/"),
 					Size:       0,
 					ModTime:    timestamp,
 					AccessTime: timestamp,
@@ -410,9 +410,10 @@ func ExportChanges(dir string, changes []Change, idMap user.IdentityMapping) (io
 					log.G(context.TODO()).Debugf("Can't write whiteout header: %s", err)
 				}
 			} else {
-				path := filepath.Join(dir, change.Path)
-				if err := ta.addTarFile(path, change.Path[1:]); err != nil {
-					log.G(context.TODO()).Debugf("Can't add file %s to tar: %s", path, err)
+				srcPath := filepath.Join(dir, change.Path)
+				archivePath := strings.TrimPrefix(filepath.ToSlash(change.Path), "/")
+				if err := ta.addTarFile(srcPath, archivePath); err != nil {
+					log.G(context.TODO()).Debugf("Can't add file %s to tar: %s", srcPath, err)
 				}
 			}
 		}
