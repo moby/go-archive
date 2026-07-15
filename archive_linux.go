@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -24,8 +25,8 @@ func (overlayWhiteoutConverter) ConvertWrite(hdr *tar.Header, filePath string, f
 	// convert whiteouts to AUFS format
 	if fi.Mode()&os.ModeCharDevice != 0 && hdr.Devmajor == 0 && hdr.Devminor == 0 {
 		// we just rename the file and make it normal
-		dir, filename := filepath.Split(hdr.Name)
-		hdr.Name = filepath.Join(dir, WhiteoutPrefix+filename)
+		dir, filename := path.Split(hdr.Name)
+		hdr.Name = path.Join(dir, WhiteoutPrefix+filename)
 		hdr.Mode = 0o600
 		hdr.Typeflag = tar.TypeReg
 		hdr.Size = 0
@@ -57,7 +58,7 @@ func (overlayWhiteoutConverter) ConvertWrite(hdr *tar.Header, filePath string, f
 	return &tar.Header{
 		Typeflag:   tar.TypeReg,
 		Mode:       hdr.Mode & int64(os.ModePerm),
-		Name:       filepath.Join(hdr.Name, WhiteoutOpaqueDir), // #nosec G305 -- An archive is being created, not extracted.
+		Name:       path.Join(hdr.Name, WhiteoutOpaqueDir), // #nosec G305 -- An archive is being created, not extracted.
 		Size:       0,
 		Uid:        hdr.Uid,
 		Uname:      hdr.Uname,
