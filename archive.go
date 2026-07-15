@@ -295,7 +295,7 @@ func canonicalTarName(name string, isDir bool) string {
 }
 
 // addTarFile adds to the tar archive a file from `srcPath` as `name`
-func (ta *tarAppender) addTarFile(srcPath, name string) error {
+func (ta *tarAppender) addTarFile(srcPath, archivePath string) error {
 	fi, err := os.Lstat(srcPath)
 	if err != nil {
 		return err
@@ -310,7 +310,7 @@ func (ta *tarAppender) addTarFile(srcPath, name string) error {
 		}
 	}
 
-	hdr, err := FileInfoHeader(name, fi, link)
+	hdr, err := FileInfoHeader(archivePath, fi, link)
 	if err != nil {
 		return err
 	}
@@ -332,7 +332,7 @@ func (ta *tarAppender) addTarFile(srcPath, name string) error {
 			hdr.Linkname = oldpath
 			hdr.Size = 0 // This Must be here for the writer math to add up!
 		} else {
-			ta.SeenFiles[inode] = name
+			ta.SeenFiles[inode] = archivePath
 		}
 	}
 
@@ -913,7 +913,6 @@ loop:
 	for _, hdr := range dirs {
 		// #nosec G305 -- The header was checked for path traversal before it was appended to the dirs slice.
 		dstPath := filepath.Join(dest, hdr.Name)
-
 		if err := chtimes(dstPath, boundTime(latestTime(hdr.AccessTime, hdr.ModTime)), boundTime(hdr.ModTime)); err != nil {
 			return err
 		}
