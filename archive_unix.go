@@ -60,7 +60,7 @@ func getFileUIDGID(stat any) (int, int, error) {
 //
 // Creating device nodes is not supported when running in a user namespace,
 // produces a [syscall.EPERM] in most cases.
-func handleTarTypeBlockCharFifo(hdr *tar.Header, path string) error {
+func handleTarTypeBlockCharFifo(hdr *tar.Header, dstPath string) error {
 	mode := uint32(hdr.Mode & 0o7777)
 	switch hdr.Typeflag {
 	case tar.TypeBlock:
@@ -81,18 +81,18 @@ func handleTarTypeBlockCharFifo(hdr *tar.Header, path string) error {
 		return fmt.Errorf("device number %d:%d for %q out of range: %w", hdr.Devmajor, hdr.Devminor, hdr.Name, errInvalidArchive)
 	}
 
-	return mknod(path, mode, unix.Mkdev(uint32(hdr.Devmajor), uint32(hdr.Devminor)))
+	return mknod(dstPath, mode, unix.Mkdev(uint32(hdr.Devmajor), uint32(hdr.Devminor)))
 }
 
-func handleLChmod(hdr *tar.Header, path string, hdrInfo os.FileInfo) error {
+func handleLChmod(hdr *tar.Header, dstPath string, hdrInfo os.FileInfo) error {
 	if hdr.Typeflag == tar.TypeLink {
 		if fi, err := os.Lstat(hdr.Linkname); err == nil && (fi.Mode()&os.ModeSymlink == 0) {
-			if err := os.Chmod(path, hdrInfo.Mode()); err != nil {
+			if err := os.Chmod(dstPath, hdrInfo.Mode()); err != nil {
 				return err
 			}
 		}
 	} else if hdr.Typeflag != tar.TypeSymlink {
-		if err := os.Chmod(path, hdrInfo.Mode()); err != nil {
+		if err := os.Chmod(dstPath, hdrInfo.Mode()); err != nil {
 			return err
 		}
 	}
