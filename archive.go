@@ -925,13 +925,9 @@ loop:
 // not already exist. This is possible as the tar format supports 'implicit' directories, where their existence is
 // defined by the paths of files in the tar, but there are no header entries for the directories themselves, and thus
 // we most both create them and choose metadata like permissions.
-//
-// The caller should have performed filepath.Clean(hdr.Name), so hdr.Name will now be in the filepath format for the OS
-// on which the daemon is running. This precondition is required because this function assumes a OS-specific path
-// separator when checking that a path is not the root.
 func createImpliedDirectories(dest string, hdr *tar.Header, options *TarOptions) error {
-	// Not the root directory, ensure that the parent directory exists
-	if !strings.HasSuffix(hdr.Name, string(os.PathSeparator)) {
+	// For non-directory entries, ensure that the parent directory exists.
+	if hdr.Typeflag != tar.TypeDir {
 		parent := filepath.Dir(hdr.Name)
 		parentPath := filepath.Join(dest, parent)
 		if _, err := os.Lstat(parentPath); err != nil && os.IsNotExist(err) {
