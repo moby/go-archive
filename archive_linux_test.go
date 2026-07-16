@@ -108,7 +108,7 @@ func TestOverlayTarUntar(t *testing.T) {
 	})
 	assert.NilError(t, err)
 	archive, err := io.ReadAll(reader)
-	reader.Close()
+	assert.NilError(t, reader.Close())
 	assert.NilError(t, err)
 
 	// The archive should encode opaque directories and file whiteouts
