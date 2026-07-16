@@ -324,7 +324,7 @@ func (ta *tarAppender) addTarFile(srcPath, archivePath string) error {
 	if !fi.IsDir() && hasHardlinks(fi) {
 		inode, err := getInodeFromStat(fi.Sys())
 		if err != nil {
-			return err
+			return fmt.Errorf("unexpected file info for %q: %w", srcPath, err)
 		}
 		// a link should have a name that it links too
 		// and that linked name should be first in the tar archive

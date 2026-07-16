@@ -40,8 +40,7 @@ func chmodTarEntry(perm os.FileMode) os.FileMode {
 func getInodeFromStat(stat any) (uint64, error) {
 	s, ok := stat.(*syscall.Stat_t)
 	if !ok {
-		// FIXME(thaJeztah): this should likely return an error; see https://github.com/moby/moby/pull/49493#discussion_r1979152897
-		return 0, nil
+		return 0, fmt.Errorf("unexpected stat type %T", stat)
 	}
 	return s.Ino, nil
 }
