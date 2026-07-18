@@ -80,19 +80,17 @@ func (c overlayWhiteoutConverter) ConvertRead(hdr *tar.Header, filePath string) 
 	base := filepath.Base(filePath)
 	dir := filepath.Dir(filePath)
 
-	// if a directory is marked as opaque by the AUFS special file, we need to translate that to overlay
+	// If a directory is marked as opaque by the AUFS special file, we need to translate that to overlay.
 	if base == WhiteoutOpaqueDir {
-		err := unix.Setxattr(dir, c.opaqueXattr, []byte{'y'}, 0)
-		if err != nil {
+		if err := unix.Setxattr(dir, c.opaqueXattr, []byte{'y'}, 0); err != nil {
 			return false, fmt.Errorf("setxattr('%s', %s=y): %w", dir, c.opaqueXattr, err)
 		}
-		// don't write the file itself
-		return false, err
+		// Don't write the whiteout file itself.
+		return false, nil
 	}
 
-	// if a file was deleted and we are using overlay, we need to create a character device
-	if strings.HasPrefix(base, WhiteoutPrefix) {
-		originalBase := base[len(WhiteoutPrefix):]
+	// If a file was deleted, and we are using overlay, we need to create a character device.
+	if originalBase, ok := strings.CutPrefix(base, WhiteoutPrefix); ok {
 		originalPath := filepath.Join(dir, originalBase)
 
 		if err := unix.Mknod(originalPath, unix.S_IFCHR, 0); err != nil {
@@ -102,7 +100,7 @@ func (c overlayWhiteoutConverter) ConvertRead(hdr *tar.Header, filePath string) 
 			return false, err
 		}
 
-		// don't write the file itself
+		// Don't write the whiteout file itself.
 		return false, nil
 	}
 
