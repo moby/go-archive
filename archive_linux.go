@@ -14,14 +14,26 @@ import (
 
 func getWhiteoutConverter(format WhiteoutFormat) tarWhiteoutConverter {
 	if format == OverlayWhiteoutFormat {
-		return overlayWhiteoutConverter{}
+		return newOverlayWhiteoutConverter()
 	}
 	return nil
 }
 
-type overlayWhiteoutConverter struct{}
+type overlayWhiteoutConverter struct {
+	opaqueXattr string
+}
 
-func (overlayWhiteoutConverter) ConvertWrite(hdr *tar.Header, filePath string, fi os.FileInfo) (wo *tar.Header, _ error) {
+func newOverlayWhiteoutConverter() overlayWhiteoutConverter {
+	opaqueXattr := "trusted.overlay.opaque"
+	if userns.RunningInUserNS() {
+		opaqueXattr = "user.overlay.opaque"
+	}
+	return overlayWhiteoutConverter{
+		opaqueXattr: opaqueXattr,
+	}
+}
+
+func (c overlayWhiteoutConverter) ConvertWrite(hdr *tar.Header, filePath string, fi os.FileInfo) (wo *tar.Header, _ error) {
 	// convert whiteouts to AUFS format
 	if fi.Mode()&os.ModeCharDevice != 0 && hdr.Devmajor == 0 && hdr.Devminor == 0 {
 		// we just rename the file and make it normal
@@ -37,13 +49,8 @@ func (overlayWhiteoutConverter) ConvertWrite(hdr *tar.Header, filePath string, f
 		return nil, nil
 	}
 
-	opaqueXattrName := "trusted.overlay.opaque"
-	if userns.RunningInUserNS() {
-		opaqueXattrName = "user.overlay.opaque"
-	}
-
 	// convert opaque dirs to AUFS format by writing an empty file with the prefix
-	opaque, err := lgetxattr(filePath, opaqueXattrName)
+	opaque, err := lgetxattr(filePath, c.opaqueXattr)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +58,7 @@ func (overlayWhiteoutConverter) ConvertWrite(hdr *tar.Header, filePath string, f
 		// FIXME(thaJeztah): return a sentinel error instead of nil, nil
 		return nil, nil
 	}
-	delete(hdr.PAXRecords, paxSchilyXattr+opaqueXattrName)
+	delete(hdr.PAXRecords, paxSchilyXattr+c.opaqueXattr)
 
 	// create a header for the whiteout file
 	// it should inherit some properties from the parent, but be a regular file
@@ -75,14 +82,9 @@ func (c overlayWhiteoutConverter) ConvertRead(hdr *tar.Header, filePath string) 
 
 	// if a directory is marked as opaque by the AUFS special file, we need to translate that to overlay
 	if base == WhiteoutOpaqueDir {
-		opaqueXattrName := "trusted.overlay.opaque"
-		if userns.RunningInUserNS() {
-			opaqueXattrName = "user.overlay.opaque"
-		}
-
-		err := unix.Setxattr(dir, opaqueXattrName, []byte{'y'}, 0)
+		err := unix.Setxattr(dir, c.opaqueXattr, []byte{'y'}, 0)
 		if err != nil {
-			return false, fmt.Errorf("setxattr('%s', %s=y): %w", dir, opaqueXattrName, err)
+			return false, fmt.Errorf("setxattr('%s', %s=y): %w", dir, c.opaqueXattr, err)
 		}
 		// don't write the file itself
 		return false, err
