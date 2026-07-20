@@ -188,6 +188,40 @@ func TestOverlayUntarInvalidWhiteoutNames(t *testing.T) {
 	}
 }
 
+// TestOverlayUntarWhiteoutLinkDir verifies that the AUFS hardlink metadata
+// directory is rejected during overlay whiteout conversion. The ".wh..wh.plnk"
+// entry is invalid archive metadata and must cause extraction to fail rather
+// than being interpreted as a whiteout for ".wh.plnk".
+func TestOverlayUntarWhiteoutLinkDir(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	var archive bytes.Buffer
+	tw := tar.NewWriter(&archive)
+
+	headers := []*tar.Header{
+		{
+			Name:     WhiteoutLinkDir,
+			Typeflag: tar.TypeDir,
+			Mode:     0o700,
+		},
+		{
+			Name:     WhiteoutLinkDir + "/0123456789",
+			Typeflag: tar.TypeReg,
+			Mode:     0o600,
+		},
+	}
+
+	for _, hdr := range headers {
+		assert.NilError(t, tw.WriteHeader(hdr))
+	}
+	assert.NilError(t, tw.Close())
+
+	err := Untar(&archive, tmpDir, &TarOptions{
+		WhiteoutFormat: OverlayWhiteoutFormat,
+	})
+	assert.ErrorContains(t, err, "invalid whiteout entry")
+}
+
 func TestOverlayTarAUFSUntar(t *testing.T) {
 	restore := overrideUmask(0)
 	defer restore()
