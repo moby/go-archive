@@ -373,11 +373,11 @@ func (ta *tarAppender) addTarFile(srcPath, archivePath string) error {
 		// hdr may have been updated to be a whiteout with returning
 		// a whiteout header
 		if wo != nil {
+			if hdr.Typeflag == tar.TypeReg && hdr.Size > 0 {
+				return fmt.Errorf("tar: cannot use whiteout for non-empty file %q", hdr.Name)
+			}
 			if err := ta.TarWriter.WriteHeader(hdr); err != nil {
 				return err
-			}
-			if hdr.Typeflag == tar.TypeReg && hdr.Size > 0 {
-				return fmt.Errorf("tar: cannot use whiteout for non-empty file")
 			}
 			hdr = wo
 		}
