@@ -154,6 +154,39 @@ func TestOverlayTarUntar(t *testing.T) {
 	checkOverlayWhiteout(t, filepath.Join(dst, "d3", "f1"))
 }
 
+// TestOverlayUntarInvalidWhiteoutNames verifies that malformed whiteout names
+// are rejected. In particular, it rejects whiteout targets of "." and "..";
+// traversal in archive paths is handled by Untar's normal path validation.
+func TestOverlayUntarInvalidWhiteoutNames(t *testing.T) {
+	tests := []struct {
+		name string
+	}{
+		{name: WhiteoutPrefix},
+		{name: WhiteoutPrefix + "."},
+		{name: WhiteoutPrefix + ".."},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var archive bytes.Buffer
+			tw := tar.NewWriter(&archive)
+
+			err := tw.WriteHeader(&tar.Header{
+				Name:     tc.name,
+				Typeflag: tar.TypeReg,
+				Mode:     0o600,
+			})
+			assert.NilError(t, err)
+			assert.NilError(t, tw.Close())
+
+			err = Untar(bytes.NewReader(archive.Bytes()), t.TempDir(), &TarOptions{
+				WhiteoutFormat: OverlayWhiteoutFormat,
+			})
+			assert.ErrorContains(t, err, "invalid whiteout entry")
+		})
+	}
+}
+
 func TestOverlayTarAUFSUntar(t *testing.T) {
 	restore := overrideUmask(0)
 	defer restore()
