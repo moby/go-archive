@@ -959,6 +959,25 @@ func TestXGlobalNoParent(t *testing.T) {
 	assert.Check(t, is.ErrorIs(err, os.ErrNotExist))
 }
 
+func TestUntarCreatesImpliedParentForDirectory(t *testing.T) {
+	buf := &bytes.Buffer{}
+	w := tar.NewWriter(buf)
+	err := w.WriteHeader(&tar.Header{
+		Name:     "parent/child/",
+		Typeflag: tar.TypeDir,
+		Mode:     0o755,
+	})
+	assert.NilError(t, err)
+	assert.NilError(t, w.Close())
+
+	tmpDir := t.TempDir()
+	assert.NilError(t, Untar(buf, tmpDir, nil))
+
+	info, err := os.Stat(filepath.Join(tmpDir, "parent", "child"))
+	assert.NilError(t, err)
+	assert.Assert(t, info.IsDir())
+}
+
 // TestImpliedDirectoryPermissions ensures that directories implied by paths in the tar file, but without their own
 // header entries are created recursively with the default mode (permissions) stored in ImpliedDirectoryMode. This test
 // also verifies that the permissions of explicit directories are respected.
