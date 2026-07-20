@@ -103,10 +103,9 @@ func TestOverlayTarUntar(t *testing.T) {
 	assert.NilError(t, err)
 	defer os.RemoveAll(dst)
 
-	options := &TarOptions{
+	reader, err := TarWithOptions(src, &TarOptions{
 		WhiteoutFormat: OverlayWhiteoutFormat,
-	}
-	reader, err := TarWithOptions(src, options)
+	})
 	assert.NilError(t, err)
 	archive, err := io.ReadAll(reader)
 	reader.Close()
@@ -138,7 +137,9 @@ func TestOverlayTarUntar(t *testing.T) {
 		"d3/" + WhiteoutPrefix + "f1": {},
 	})
 
-	err = Untar(bytes.NewReader(archive), dst, options)
+	err = Untar(bytes.NewReader(archive), dst, &TarOptions{
+		WhiteoutFormat: OverlayWhiteoutFormat,
+	})
 	assert.NilError(t, err)
 
 	checkFileMode(t, filepath.Join(dst, "d1"), 0o700|os.ModeDir)
