@@ -432,12 +432,10 @@ func CopyTo(content io.Reader, srcInfo CopyInfo, dstPath string) error {
 	}
 	defer func() { _ = copyArchive.Close() }()
 
-	options := &TarOptions{
+	return Untar(copyArchive, dstDir, &TarOptions{
 		NoLchown:             true,
 		NoOverwriteDirNonDir: true,
-	}
-
-	return Untar(copyArchive, dstDir, options)
+	})
 }
 
 // ResolveHostSourcePath decides real path need to be copied with parameters such as
