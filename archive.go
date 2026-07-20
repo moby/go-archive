@@ -945,12 +945,6 @@ loop:
 		// hdr.Name stays POSIX (forward-slash) for logical string checks.
 		dstPath := filepath.FromSlash(hdr.Name)
 
-		// Ensure that the parent directory exists.
-		err = createImpliedDirectories(root, hdr, options)
-		if err != nil {
-			return err
-		}
-
 		// If dstPath exists we almost always just want to remove and replace it.
 		// The only exception is when it is a directory *and* the file from
 		// the layer is also a directory. Then we want to merge them (i.e.
@@ -980,6 +974,14 @@ loop:
 		}
 
 		if err := remapIDs(options.IDMap, hdr); err != nil {
+			return err
+		}
+
+		// Ensure that the parent directory exists.
+		//
+		// This must be done before whiteoutConverter.ConvertRead, which
+		// may set xattrs on the directory or create whiteout files.
+		if err := createImpliedDirectories(root, hdr, options); err != nil {
 			return err
 		}
 
