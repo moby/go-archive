@@ -103,8 +103,24 @@ func (c overlayWhiteoutConverter) ConvertRead(hdr *tar.Header, filePath string) 
 		if err := unix.Mknod(originalPath, unix.S_IFCHR, 0); err != nil {
 			return false, fmt.Errorf("failed to mknod('%s', S_IFCHR, 0): %w", originalPath, err)
 		}
-		if err := os.Chown(originalPath, hdr.Uid, hdr.Gid); err != nil {
-			return false, err
+
+		// Header IDs have already been remapped. Optimize the common non-remapped
+		// root-owned (0:0) case by assuming the created whiteout has the expected
+		// ownership, rather than comparing against the effective UID/GID or stat'ing
+		// the created node to verify it.
+		if hdr.Uid != 0 || hdr.Gid != 0 {
+			// TODO(thaJeztah): Revisit whether whiteout ownership needs to be preserved.
+			//
+			// This was added in the original overlay whiteout implementation:
+			// https://github.com/moby/moby/pull/18560 / https://github.com/moby/moby/pull/22126
+			//
+			// OverlayFS documents whiteouts in terms of a character device with device
+			// number 0:0, not ownership: https://docs.kernel.org/filesystems/overlayfs.html#whiteouts-and-opaque-directories
+			//
+			// If ownership is not required, this Lchown can be removed to avoid the remaining TOCTOU window.
+			if err := os.Lchown(originalPath, hdr.Uid, hdr.Gid); err != nil {
+				return false, err
+			}
 		}
 
 		// Don't write the whiteout file itself.
