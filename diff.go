@@ -53,6 +53,9 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 		if name == "." {
 			continue
 		}
+		if !filepath.IsLocal(name) {
+			return 0, breakoutError(fmt.Errorf("invalid entry name %q", hdr.Name))
+		}
 		hdr.Name = name
 
 		// Windows does not support filenames with colons in them. Ignore
@@ -115,9 +118,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 		if err != nil {
 			return 0, err
 		}
-
-		// Note as these operations are platform specific, so must the slash be.
-		if strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		if !filepath.IsLocal(rel) {
 			return 0, breakoutError(fmt.Errorf("%q is outside of %q", hdr.Name, dest))
 		}
 		base := filepath.Base(dstPath)
