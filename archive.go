@@ -847,6 +847,9 @@ loop:
 		if name == "." {
 			continue
 		}
+		if !filepath.IsLocal(name) {
+			return breakoutError(fmt.Errorf("invalid entry name %q", hdr.Name))
+		}
 		for _, exclude := range options.ExcludePatterns {
 			if strings.HasPrefix(name, exclude) {
 				continue loop
@@ -866,7 +869,7 @@ loop:
 		if err != nil {
 			return err
 		}
-		if strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		if !filepath.IsAbs(rel) {
 			return breakoutError(fmt.Errorf("%q is outside of %q", hdr.Name, dest))
 		}
 
