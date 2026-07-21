@@ -28,9 +28,6 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 	if options == nil {
 		options = &TarOptions{}
 	}
-	if options.ExcludePatterns == nil {
-		options.ExcludePatterns = []string{}
-	}
 
 	aufsTempdir := ""
 	aufsHardlinks := make(map[string]*tar.Header)
