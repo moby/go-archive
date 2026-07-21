@@ -9,7 +9,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/containerd/log"
@@ -58,25 +57,10 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 		}
 		hdr.Name = name
 
-		// Windows does not support filenames with colons in them. Ignore
-		// these files. This is not a problem though (although it might
-		// appear that it is). Let's suppose a client is running docker pull.
-		// The daemon it points to is Windows. Would it make sense for the
-		// client to be doing a docker pull Ubuntu for example (which has files
-		// with colons in the name under /usr/share/man/man3)? No, absolutely
-		// not as it would really only make sense that they were pulling a
-		// Windows image. However, for development, it is necessary to be able
-		// to pull Linux images which are in the repository.
-		//
-		// TODO Windows. Once the registry is aware of what images are Windows-
-		// specific or Linux-specific, this warning should be changed to an error
-		// to cater for the situation where someone does manage to upload a Linux
-		// image but have it tagged as Windows inadvertently.
-		if runtime.GOOS == "windows" {
-			if strings.Contains(hdr.Name, ":") {
-				log.G(context.TODO()).Warnf("Windows: Ignoring %s (is this a Linux image?)", hdr.Name)
-				continue
-			}
+		// Skip entries whose name (or hardlink target) Windows cannot represent.
+		if err := unrepresentableOnWindows(hdr); err != nil {
+			log.G(context.TODO()).Warnf("Windows: ignoring entry: %v", err)
+			continue
 		}
 
 		// #nosec G305 -- The joined path is guarded against path traversal.
