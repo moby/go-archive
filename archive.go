@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -839,16 +840,19 @@ loop:
 			continue
 		}
 
-		// Normalize name, for safety and for a simple is-root check
-		// This keeps "../" as-is, but normalizes "/../" to "/". Or Windows:
-		// This keeps "..\" as-is, but normalizes "\..\" to "\".
-		hdr.Name = filepath.Clean(hdr.Name)
-
+		// Strip any leading "/" so absolute entries stay root-relative, and
+		// normalize the POSIX tar path. Skip entries referring to the extraction
+		// root and reject paths that escape it.
+		name := path.Clean(strings.TrimLeft(hdr.Name, "/"))
+		if name == "." {
+			continue
+		}
 		for _, exclude := range options.ExcludePatterns {
-			if strings.HasPrefix(hdr.Name, exclude) {
+			if strings.HasPrefix(name, exclude) {
 				continue loop
 			}
 		}
+		hdr.Name = name
 
 		// Ensure that the parent directory exists.
 		err = createImpliedDirectories(dest, hdr, options)
@@ -857,7 +861,7 @@ loop:
 		}
 
 		// #nosec G305 -- The joined path is checked for path traversal.
-		dstPath := filepath.Join(dest, hdr.Name)
+		dstPath := filepath.Join(dest, filepath.FromSlash(hdr.Name))
 		rel, err := filepath.Rel(dest, dstPath)
 		if err != nil {
 			return err
@@ -921,7 +925,7 @@ loop:
 
 	for _, hdr := range dirs {
 		// #nosec G305 -- The header was checked for path traversal before it was appended to the dirs slice.
-		dstPath := filepath.Join(dest, hdr.Name)
+		dstPath := filepath.Join(dest, filepath.FromSlash(hdr.Name))
 		if err := chtimes(dstPath, boundTime(latestTime(hdr.AccessTime, hdr.ModTime)), boundTime(hdr.ModTime)); err != nil {
 			return err
 		}
