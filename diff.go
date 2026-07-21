@@ -92,6 +92,10 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 			// such hardlinks can be resolved.
 			if strings.HasPrefix(hdr.Name, WhiteoutLinkDir) && hdr.Typeflag == tar.TypeReg {
 				basename := path.Base(hdr.Name)
+				localBasename, err := filepath.Localize(basename)
+				if err != nil || filepath.Base(localBasename) != localBasename {
+					return 0, breakoutError(fmt.Errorf("invalid AUFS hardlink name %q", hdr.Name))
+				}
 				aufsHardlinks[basename] = hdr
 				if aufsTempdir == "" {
 					if aufsTempdir, err = os.MkdirTemp(dest, "dockerplnk"); err != nil {
@@ -99,7 +103,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 					}
 					defer os.RemoveAll(aufsTempdir)
 				}
-				if err := createTarFile(filepath.Join(aufsTempdir, basename), dest, hdr, tr, options); err != nil {
+				if err := createTarFile(filepath.Join(aufsTempdir, localBasename), dest, hdr, tr, options); err != nil {
 					return 0, err
 				}
 			}
@@ -175,9 +179,13 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 				linkBasename := path.Base(hdr.Linkname)
 				srcHdr = aufsHardlinks[linkBasename]
 				if srcHdr == nil {
-					return 0, errors.New("invalid aufs hardlink")
+					return 0, errors.New("invalid AUFS hardlink")
 				}
-				tmpFile, err := os.Open(filepath.Join(aufsTempdir, linkBasename))
+				localBasename, err := filepath.Localize(linkBasename)
+				if err != nil || filepath.Base(localBasename) != localBasename {
+					return 0, breakoutError(fmt.Errorf("invalid AUFS hardlink name %q", hdr.Linkname))
+				}
+				tmpFile, err := os.Open(filepath.Join(aufsTempdir, localBasename))
 				if err != nil {
 					return 0, err
 				}
