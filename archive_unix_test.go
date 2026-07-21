@@ -63,12 +63,9 @@ func TestChmodTarEntry(t *testing.T) {
 
 // TestImpliedDirectoryPermissions ensures that directories implied by paths in the tar file, but without their own
 // header entries are created recursively with the default mode (permissions) stored in ImpliedDirectoryMode. This test
-// also verifies that the permissions of explicit directories are respected, independent of the process umask.
+// also verifies that the permissions of explicit entries are respected, independent of the process umask.
 func TestImpliedDirectoryPermissions(t *testing.T) {
 	skip.If(t, os.Getuid() != 0, "skipping test that requires root")
-
-	restore := overrideUmask(0o022)
-	t.Cleanup(restore)
 
 	buf := &bytes.Buffer{}
 	headers := []tar.Header{{
@@ -89,6 +86,10 @@ func TestImpliedDirectoryPermissions(t *testing.T) {
 		Name:     "explicit/permissions/umask/",
 		Typeflag: tar.TypeDir,
 		Mode:     0o777,
+	}, {
+		Name:     "explicit/permissions/umask/file",
+		Typeflag: tar.TypeReg,
+		Mode:     0o666,
 	}}
 
 	w := tar.NewWriter(buf)
@@ -98,25 +99,33 @@ func TestImpliedDirectoryPermissions(t *testing.T) {
 	}
 	assert.NilError(t, w.Close())
 
-	tmpDir := t.TempDir()
-	err := Untar(buf, tmpDir, nil)
-	assert.NilError(t, err)
+	for _, umask := range []int{0o022, 0o027} {
+		t.Run(fmt.Sprintf("umask=%#o", umask), func(t *testing.T) {
+			restore := overrideUmask(umask)
+			defer restore()
 
-	assertMode := func(path string, expected fs.FileMode) {
-		t.Helper()
-		stat, err := os.Lstat(filepath.Join(tmpDir, path))
-		assert.Check(t, err)
-		assert.Check(t, is.Equal(stat.Mode().Perm(), expected))
+			tmpDir := t.TempDir()
+			err := Untar(bytes.NewReader(buf.Bytes()), tmpDir, nil)
+			assert.NilError(t, err)
+
+			assertMode := func(path string, expected fs.FileMode) {
+				t.Helper()
+				stat, err := os.Lstat(filepath.Join(tmpDir, path))
+				assert.Check(t, err)
+				assert.Check(t, is.Equal(stat.Mode().Perm(), expected))
+			}
+
+			assertMode("deeply", ImpliedDirectoryMode)
+			assertMode("deeply/nested", ImpliedDirectoryMode)
+			assertMode("deeply/nested/and", ImpliedDirectoryMode)
+
+			assertMode("explicit", 0o644)
+			assertMode("explicit/permissions", 0o600)
+			assertMode("explicit/permissions/specified", 0o400)
+			assertMode("explicit/permissions/umask", 0o777)
+			assertMode("explicit/permissions/umask/file", 0o666)
+		})
 	}
-
-	assertMode("deeply", ImpliedDirectoryMode)
-	assertMode("deeply/nested", ImpliedDirectoryMode)
-	assertMode("deeply/nested/and", ImpliedDirectoryMode)
-
-	assertMode("explicit", 0o644)
-	assertMode("explicit/permissions", 0o600)
-	assertMode("explicit/permissions/specified", 0o400)
-	assertMode("explicit/permissions/umask", 0o777)
 }
 
 func TestTarWithHardLink(t *testing.T) {
