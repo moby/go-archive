@@ -72,12 +72,9 @@ func toUnixPath(p string) string {
 	}
 	p = filepath.ToSlash(p)
 
-	// This should probably be more generic, but this suits our needs for now.
-	if pth, ok := strings.CutPrefix(p, "C:/"); ok {
-		return "/c/" + pth
-	}
-	if pth, ok := strings.CutPrefix(p, "D:/"); ok {
-		return "/d/" + pth
+	vol := strings.TrimPrefix(filepath.VolumeName(p), "//?/")
+	if len(vol) == 2 && vol[1] == ':' {
+		return "/" + strings.ToLower(vol[:1]) + p[len(filepath.VolumeName(p)):]
 	}
 	return p
 }
