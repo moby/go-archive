@@ -52,6 +52,12 @@ func testBreakout(untarFn string, tmpdir string, headers []*tar.Header) error {
 	if err := os.Mkdir(victim, 0o755); err != nil {
 		return err
 	}
+	// Avoid unrelated ownership failures when the cleaned path remains inside
+	// dest and requires an implied "victim" directory.
+	// See https://github.com/moby/go-archive/pull/69#issuecomment-5046037628
+	if err := os.Mkdir(filepath.Join(dest, "victim"), 0o755); err != nil {
+		return err
+	}
 	hello := filepath.Join(victim, "hello")
 	helloData, err := time.Now().MarshalText()
 	if err != nil {
