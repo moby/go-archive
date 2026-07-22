@@ -287,7 +287,7 @@ func ReadSecurityXattrToTarHeader(filePath string, hdr *tar.Header) error {
 
 type tarWhiteoutConverter interface {
 	ConvertWrite(*tar.Header, string, os.FileInfo) (*tar.Header, error)
-	ConvertRead(*tar.Header, string) (bool, error)
+	ConvertRead(*os.Root, *tar.Header, string) (bool, error)
 }
 
 type tarAppender struct {
@@ -986,14 +986,7 @@ loop:
 		}
 
 		if whiteoutConverter != nil {
-			// ConvertRead implementations (e.g. overlayWhiteoutConverter)
-			// make direct syscalls with the path, so they need the absolute
-			// path bounded within dest rather than the root-relative name.
-			absPath, err := fsRootPath(root.Name(), dstPath)
-			if err != nil {
-				return err
-			}
-			writeFile, err := whiteoutConverter.ConvertRead(hdr, absPath)
+			writeFile, err := whiteoutConverter.ConvertRead(root, hdr, dstPath)
 			if err != nil {
 				return err
 			}
