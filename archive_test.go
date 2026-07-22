@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -78,22 +77,6 @@ func createTarFromFiles(t *testing.T, tarPath string, files ...string) {
 	assert.NilError(t, f.Close())
 }
 
-// toUnixPath converts the given path to a unix-path, using forward-slashes, and
-// with the drive-letter replaced (e.g. "C:\temp\file.txt" becomes "/c/temp/file.txt").
-// It is a no-op on non-Windows platforms.
-func toUnixPath(p string) string {
-	if runtime.GOOS != "windows" {
-		return p
-	}
-	p = filepath.ToSlash(p)
-
-	vol := strings.TrimPrefix(filepath.VolumeName(p), "//?/")
-	if len(vol) == 2 && vol[1] == ':' {
-		return "/" + strings.ToLower(vol[:1]) + p[len(filepath.VolumeName(p)):]
-	}
-	return p
-}
-
 func TestIsArchivePathDir(t *testing.T) {
 	tmp := t.TempDir()
 	assert.NilError(t, os.Mkdir(filepath.Join(tmp, "archivedir"), 0o755))
@@ -102,17 +85,22 @@ func TestIsArchivePathDir(t *testing.T) {
 
 func TestIsArchivePathInvalidFile(t *testing.T) {
 	tmp := t.TempDir()
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("dd if=/dev/zero bs=1024 count=1 of=%[1]s/archive && gzip --stdout %[1]s/archive > %[1]s/archive.gz", toUnixPath(tmp)))
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to create archive file (%v): %s", err, output)
-	}
-	if IsArchivePath(filepath.Join(tmp, "archive")) {
-		t.Fatalf("Incorrectly recognised invalid tar path as archive")
-	}
-	if IsArchivePath(filepath.Join(tmp, "archive.gz")) {
-		t.Fatalf("Incorrectly recognised invalid compressed tar path as archive")
-	}
+
+	archive := filepath.Join(tmp, "archive")
+	assert.NilError(t, os.WriteFile(archive, []byte("hello"), 0o644))
+
+	archiveGz := archive + ".gz"
+	f, err := os.Create(archiveGz)
+	assert.NilError(t, err)
+
+	gw := gzip.NewWriter(f)
+	_, err = gw.Write([]byte("hello"))
+	assert.NilError(t, err)
+	assert.NilError(t, gw.Close())
+	assert.NilError(t, f.Close())
+
+	assert.Check(t, !IsArchivePath(archive), "incorrectly recognised invalid tar path as archive")
+	assert.Check(t, !IsArchivePath(archiveGz), "incorrectly recognised invalid compressed tar path as archive")
 }
 
 func TestIsArchivePathTar(t *testing.T) {
