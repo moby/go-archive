@@ -33,8 +33,8 @@ func getWalkRoot(srcPath string, include string) string {
 
 // chmodTarEntry is used to adjust the file permissions used in tar header based
 // on the platform the archival is done.
-func chmodTarEntry(perm os.FileMode) os.FileMode {
-	return perm // noop for unix as golang APIs provide perm bits correctly
+func chmodTarEntry(mode int64) int64 {
+	return mode // noop for unix as golang APIs provide perm bits correctly
 }
 
 func getInodeFromStat(stat any) (uint64, error) {

@@ -46,7 +46,7 @@ func TestCanonicalTarName(t *testing.T) {
 
 func TestChmodTarEntry(t *testing.T) {
 	cases := []struct {
-		in, expected os.FileMode
+		in, expected int64
 	}{
 		{0o000, 0o000},
 		{0o777, 0o777},
@@ -56,7 +56,7 @@ func TestChmodTarEntry(t *testing.T) {
 	}
 	for _, v := range cases {
 		if out := chmodTarEntry(v.in); out != v.expected {
-			t.Fatalf("wrong chmod. expected:%v got:%v", v.expected, out)
+			t.Fatalf("wrong chmod: expected=%#o got=%#o", v.expected, out)
 		}
 	}
 }
