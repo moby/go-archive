@@ -813,6 +813,9 @@ func (t *Tarballer) Do() {
 
 // Unpack unpacks the decompressedArchive to dest with options.
 func Unpack(decompressedArchive io.Reader, dest string, options *TarOptions) error {
+	if options == nil {
+		options = &TarOptions{}
+	}
 	tr := tar.NewReader(decompressedArchive)
 
 	var dirs []*tar.Header
