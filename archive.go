@@ -46,7 +46,12 @@ type (
 
 	// TarOptions wraps the tar options.
 	TarOptions struct {
-		IncludeFiles     []string
+		// IncludeFiles lists archive-relative paths to include.
+		// Paths use POSIX ('/') separators.
+		IncludeFiles []string
+
+		// ExcludePatterns lists archive-relative exclude patterns.
+		// Patterns use POSIX ('/') separators, matching patternmatcher semantics.
 		ExcludePatterns  []string
 		Compression      compression.Compression
 		NoLchown         bool
