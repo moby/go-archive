@@ -48,7 +48,7 @@ func getInodeFromStat(stat any) (uint64, error) {
 
 // handleTarTypeBlockCharFifo is an OS-specific helper function used by
 // createTarFile to handle the following types of header: Block; Char; Fifo
-func handleTarTypeBlockCharFifo(hdr *tar.Header, path string) error {
+func handleTarTypeBlockCharFifo(root *os.Root, hdr *tar.Header, path string) error {
 	return nil
 }
 

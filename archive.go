@@ -460,13 +460,6 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 	// so use hdrInfo.Mode() (they differ for e.g. setuid bits)
 	hdrInfo := hdr.FileInfo()
 
-	// absPath is computed lazily. It is only required for mknod and xattrs.
-	// Symlinks intentionally use root.Symlink directly to preserve absolute
-	// targets; os.Root.Symlink rejects absolute targets like /usr/lib.
-	absPath := sync.OnceValues(func() (string, error) {
-		return fsRootPath(root.Name(), dstPath)
-	})
-
 	switch hdr.Typeflag {
 	case tar.TypeDir:
 		// Create directory unless it already exists as one; merge in that case.
@@ -501,22 +494,12 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 			log.G(context.TODO()).WithFields(log.Fields{"path": dstPath, "type": hdr.Typeflag}).Debug("skipping device nodes in a userns")
 			return nil
 		}
-		// os.Root has no mknod support; use absPath so the path stays bounded.
-		ap, err := absPath()
-		if err != nil {
-			return err
-		}
-		if err := handleTarTypeBlockCharFifo(hdr, ap); err != nil {
+		if err := handleTarTypeBlockCharFifo(root, hdr, dstPath); err != nil {
 			return err
 		}
 
 	case tar.TypeFifo:
-		// os.Root has no mknod support; use absPath so the path stays bounded.
-		ap, err := absPath()
-		if err != nil {
-			return err
-		}
-		if err := handleTarTypeBlockCharFifo(hdr, ap); err != nil {
+		if err := handleTarTypeBlockCharFifo(root, hdr, dstPath); err != nil {
 			if inUserns && errors.Is(err, syscall.EPERM) {
 				// In most cases, cannot create a fifo if running in user namespace
 				log.G(context.TODO()).WithFields(log.Fields{"error": err, "path": dstPath, "type": hdr.Typeflag}).Debug("creating fifo node in a userns")
@@ -575,6 +558,9 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 	}
 
 	var xattrErrs []string
+	absPath := sync.OnceValues(func() (string, error) {
+		return fsRootPath(root.Name(), dstPath)
+	})
 	for key, value := range hdr.PAXRecords {
 		xattr, ok := strings.CutPrefix(key, paxSchilyXattr)
 		if !ok {
