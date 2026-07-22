@@ -858,7 +858,7 @@ loop:
 			return breakoutError(fmt.Errorf("%q is outside of %q", hdr.Name, dest))
 		}
 
-		// If path exits we almost always just want to remove and replace it
+		// If dstPath exists we almost always just want to remove and replace it.
 		// The only exception is when it is a directory *and* the file from
 		// the layer is also a directory. Then we want to merge them (i.e.
 		// just apply the metadata from the layer).
