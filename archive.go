@@ -557,19 +557,23 @@ func createTarFile(dstPath, extractDir string, hdr *tar.Header, reader io.Reader
 	aTime := boundTime(latestTime(hdr.AccessTime, hdr.ModTime))
 	mTime := boundTime(hdr.ModTime)
 
-	// chtimes doesn't support a NOFOLLOW flag atm
-	if hdr.Typeflag == tar.TypeLink {
-		if fi, err := os.Lstat(hdr.Linkname); err == nil && (fi.Mode()&os.ModeSymlink == 0) {
+	switch hdr.Typeflag {
+	case tar.TypeSymlink:
+		// Apply timestamps to the symlink itself (AT_SYMLINK_NOFOLLOW).
+		if err := lchtimes(dstPath, aTime, mTime); err != nil {
+			return err
+		}
+	case tar.TypeLink:
+		// Follow the hardlink only when its target is not itself a symlink.
+		fi, err := os.Lstat(hdr.Linkname)
+		if err == nil && fi.Mode()&os.ModeSymlink == 0 {
 			if err := chtimes(dstPath, aTime, mTime); err != nil {
 				return err
 			}
 		}
-	} else if hdr.Typeflag != tar.TypeSymlink {
+	default:
+		// All other file types follow symlinks.
 		if err := chtimes(dstPath, aTime, mTime); err != nil {
-			return err
-		}
-	} else {
-		if err := lchtimes(dstPath, aTime, mTime); err != nil {
 			return err
 		}
 	}
