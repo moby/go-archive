@@ -587,6 +587,55 @@ func TestTypeXGlobalHeaderDoesNotFail(t *testing.T) {
 	}
 }
 
+// TestCreateTarFileSymlinkPreservesLinkname verifies that symlink targets are
+// treated as opaque values and are preserved verbatim rather than converted to
+// platform-native path syntax during extraction.
+func TestCreateTarFileSymlinkPreservesLinkname(t *testing.T) {
+	t.Skip("FIXME: currently failing: enable once https://github.com/moby/go-archive/pull/45 is merged")
+	tests := []struct {
+		name     string
+		linkname string
+	}{
+		{
+			name:     "relative_posix_target",
+			linkname: "../usr/local/bin/tool",
+		},
+		{
+			name:     "absolute_posix_target",
+			linkname: "/usr/local/bin/tool",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+
+			if err := os.Mkdir(filepath.Join(tmpDir, "bin"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			hdr := tar.Header{
+				Name:     "bin/tool",
+				Typeflag: tar.TypeSymlink,
+				Linkname: tc.linkname,
+			}
+
+			err := createTarFile(filepath.Join(tmpDir, hdr.Name), tmpDir, &hdr, nil, &TarOptions{
+				NoLchown: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			target, err := os.Readlink(filepath.Join(tmpDir, "bin", "tool"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			assert.Check(t, is.Equal(tc.linkname, target))
+		})
+	}
+}
+
 // Some tar have both GNU specific (huge uid) and Ustar specific (long name) things.
 // Not supposed to happen (should use PAX instead of Ustar for long name) but it does and it should still work.
 func TestUntarUstarGnuConflict(t *testing.T) {
