@@ -52,8 +52,12 @@ type (
 
 		// ExcludePatterns lists archive-relative exclude patterns.
 		// Patterns use POSIX ('/') separators, matching patternmatcher semantics.
-		ExcludePatterns  []string
-		Compression      compression.Compression
+		ExcludePatterns []string
+		Compression     compression.Compression
+		// NoLchown disables applying ownership from the archive to extracted files
+		// and directories. Despite its historical name, it applies to all ownership
+		// changes, leaving extracted filesystem objects owned by the user performing
+		// the extraction.
 		NoLchown         bool
 		IDMap            user.IdentityMapping
 		ChownOpts        *ChownOpts
@@ -939,6 +943,9 @@ func createImpliedDirectories(dest string, hdr *tar.Header, options *TarOptions)
 		parent := filepath.Dir(hdr.Name)
 		parentPath := filepath.Join(dest, parent)
 		if _, err := os.Lstat(parentPath); err != nil && os.IsNotExist(err) {
+			if options.NoLchown {
+				return os.MkdirAll(parentPath, ImpliedDirectoryMode)
+			}
 			// RootPair() is confined inside this loop as most cases will not require a call, so we can spend some
 			// unneeded function calls in the uncommon case to encapsulate logic -- implied directories are a niche
 			// usage that reduces the portability of an image.
