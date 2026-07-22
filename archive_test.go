@@ -96,14 +96,8 @@ func toUnixPath(p string) string {
 
 func TestIsArchivePathDir(t *testing.T) {
 	tmp := t.TempDir()
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("mkdir -p %s/archivedir", toUnixPath(tmp)))
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to create directory (%v): %s", err, output)
-	}
-	if IsArchivePath(filepath.Join(tmp, "archivedir")) {
-		t.Fatalf("Incorrectly recognised directory as an archive")
-	}
+	assert.NilError(t, os.Mkdir(filepath.Join(tmp, "archivedir"), 0o755))
+	assert.Check(t, !IsArchivePath(filepath.Join(tmp, "archivedir")), "incorrectly recognised directory as an archive")
 }
 
 func TestIsArchivePathInvalidFile(t *testing.T) {
