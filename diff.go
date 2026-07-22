@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -46,7 +47,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 		size += hdr.Size
 
 		// Normalize name, for safety and for a simple is-root check
-		hdr.Name = filepath.Clean(hdr.Name)
+		hdr.Name = path.Clean(hdr.Name)
 
 		// Windows does not support filenames with colons in them. Ignore
 		// these files. This is not a problem though (although it might
@@ -81,7 +82,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 			// We don't want this directory, but we need the files in them so that
 			// such hardlinks can be resolved.
 			if strings.HasPrefix(hdr.Name, WhiteoutLinkDir) && hdr.Typeflag == tar.TypeReg {
-				basename := filepath.Base(hdr.Name)
+				basename := path.Base(hdr.Name)
 				aufsHardlinks[basename] = hdr
 				if aufsTempdir == "" {
 					if aufsTempdir, err = os.MkdirTemp(dest, "dockerplnk"); err != nil {
@@ -99,7 +100,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 			}
 		}
 		// #nosec G305 -- The joined path is guarded against path traversal.
-		dstPath := filepath.Join(dest, hdr.Name)
+		dstPath := filepath.Join(dest, filepath.FromSlash(hdr.Name))
 		rel, err := filepath.Rel(dest, dstPath)
 		if err != nil {
 			return 0, err
@@ -161,8 +162,8 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 
 			// Hard links into /.wh..wh.plnk don't work, as we don't extract that directory, so
 			// we manually retarget these into the temporary files we extracted them into
-			if hdr.Typeflag == tar.TypeLink && strings.HasPrefix(filepath.Clean(hdr.Linkname), WhiteoutLinkDir) {
-				linkBasename := filepath.Base(hdr.Linkname)
+			if hdr.Typeflag == tar.TypeLink && strings.HasPrefix(path.Clean(hdr.Linkname), WhiteoutLinkDir) {
+				linkBasename := path.Base(hdr.Linkname)
 				srcHdr = aufsHardlinks[linkBasename]
 				if srcHdr == nil {
 					return 0, errors.New("invalid aufs hardlink")
@@ -194,7 +195,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 
 	for _, hdr := range dirs {
 		// #nosec G305 -- The header was checked for path traversal before it was appended to the dirs slice.
-		dstPath := filepath.Join(dest, hdr.Name)
+		dstPath := filepath.Join(dest, filepath.FromSlash(hdr.Name))
 		if err := chtimes(dstPath, hdr.AccessTime, hdr.ModTime); err != nil {
 			return 0, err
 		}

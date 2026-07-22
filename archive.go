@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -349,7 +350,7 @@ func (ta *tarAppender) addTarFile(srcPath, archivePath string) error {
 	// handle re-mapping container ID mappings back to host ID mappings before
 	// writing tar headers/files. We skip whiteout files because they were written
 	// by the kernel and already have proper ownership relative to the host
-	if !isOverlayWhiteout && !strings.HasPrefix(filepath.Base(hdr.Name), WhiteoutPrefix) && !ta.IdentityMapping.Empty() {
+	if !isOverlayWhiteout && !strings.HasPrefix(path.Base(hdr.Name), WhiteoutPrefix) && !ta.IdentityMapping.Empty() {
 		uid, gid, err := getFileUIDGID(fi.Sys())
 		if err != nil {
 			return err
@@ -486,13 +487,18 @@ func createTarFile(dstPath, extractDir string, hdr *tar.Header, reader io.Reader
 		}
 
 	case tar.TypeSymlink:
-		// 	path 				-> hdr.Linkname = targetPath
-		// e.g. /extractDir/path/to/symlink 	-> ../2/file	= /extractDir/path/2/file
-		targetPath := filepath.Join(filepath.Dir(dstPath), hdr.Linkname) // #nosec G305 -- The target path is checked for path traversal.
+		// dstPath is the symlink path being created.
+		// hdr.Linkname is the symlink target as stored in the tar header.
+		// Example:
+		//   /extractDir/path/to/symlink -> ../2/file
+		// resolves for validation to:
+		//   /extractDir/path/2/file
+		targetPath := filepath.Join(filepath.Dir(dstPath), filepath.FromSlash(hdr.Linkname)) // #nosec G305 -- The target path is checked for path traversal.
 
 		// the reason we don't need to check symlinks in the path (with FollowSymlinkInScope) is because
 		// that symlink would first have to be created, which would be caught earlier, at this very check:
-		if !strings.HasPrefix(targetPath, extractDir) {
+		rel, err := filepath.Rel(extractDir, targetPath)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return breakoutError(fmt.Errorf("invalid symlink %q -> %q", dstPath, hdr.Linkname))
 		}
 		if err := os.Symlink(hdr.Linkname, dstPath); err != nil {
@@ -555,7 +561,7 @@ func createTarFile(dstPath, extractDir string, hdr *tar.Header, reader io.Reader
 
 	// chtimes doesn't support a NOFOLLOW flag atm
 	if hdr.Typeflag == tar.TypeLink {
-		if fi, err := os.Lstat(hdr.Linkname); err == nil && (fi.Mode()&os.ModeSymlink == 0) {
+		if fi, err := os.Lstat(filepath.FromSlash(hdr.Linkname)); err == nil && (fi.Mode()&os.ModeSymlink == 0) {
 			if err := chtimes(dstPath, aTime, mTime); err != nil {
 				return err
 			}
@@ -799,7 +805,8 @@ func (t *Tarballer) Do() {
 				relFilePath = strings.Replace(relFilePath, include, replacement, 1)
 			}
 
-			if err := ta.addTarFile(filePath, relFilePath); err != nil {
+			archivePath := filepath.ToSlash(relFilePath)
+			if err := ta.addTarFile(filePath, archivePath); err != nil {
 				log.G(context.TODO()).Errorf("Can't add file %s to tar: %s", filePath, err)
 				// if pipe is broken, stop writing tar stream to it
 				if errors.Is(err, io.ErrClosedPipe) {
@@ -837,9 +844,8 @@ loop:
 		}
 
 		// Normalize name, for safety and for a simple is-root check
-		// This keeps "../" as-is, but normalizes "/../" to "/". Or Windows:
-		// This keeps "..\" as-is, but normalizes "\..\" to "\".
-		hdr.Name = filepath.Clean(hdr.Name)
+		// This keeps "../" as-is, but normalizes "/../" to "/".
+		hdr.Name = path.Clean(hdr.Name)
 
 		for _, exclude := range options.ExcludePatterns {
 			if strings.HasPrefix(hdr.Name, exclude) {
@@ -854,7 +860,7 @@ loop:
 		}
 
 		// #nosec G305 -- The joined path is checked for path traversal.
-		dstPath := filepath.Join(dest, hdr.Name)
+		dstPath := filepath.Join(dest, filepath.FromSlash(hdr.Name))
 		rel, err := filepath.Rel(dest, dstPath)
 		if err != nil {
 			return err
@@ -918,7 +924,7 @@ loop:
 
 	for _, hdr := range dirs {
 		// #nosec G305 -- The header was checked for path traversal before it was appended to the dirs slice.
-		dstPath := filepath.Join(dest, hdr.Name)
+		dstPath := filepath.Join(dest, filepath.FromSlash(hdr.Name))
 		if err := chtimes(dstPath, boundTime(latestTime(hdr.AccessTime, hdr.ModTime)), boundTime(hdr.ModTime)); err != nil {
 			return err
 		}
@@ -930,11 +936,14 @@ loop:
 // not already exist. This is possible as the tar format supports 'implicit' directories, where their existence is
 // defined by the paths of files in the tar, but there are no header entries for the directories themselves, and thus
 // we most both create them and choose metadata like permissions.
+//
+// hdr.Name is a tar header path, not a host filesystem path, and therefore uses
+// POSIX ('/') path semantics regardless of the operating system. The caller
+// must pass a normalized tar header path.
 func createImpliedDirectories(dest string, hdr *tar.Header, options *TarOptions) error {
 	// For non-directory entries, ensure that the parent directory exists.
 	if hdr.Typeflag != tar.TypeDir {
-		parent := filepath.Dir(hdr.Name)
-		parentPath := filepath.Join(dest, parent)
+		parentPath := filepath.Join(dest, filepath.FromSlash(path.Dir(hdr.Name)))
 		if _, err := os.Lstat(parentPath); err != nil && os.IsNotExist(err) {
 			// RootPair() is confined inside this loop as most cases will not require a call, so we can spend some
 			// unneeded function calls in the uncommon case to encapsulate logic -- implied directories are a niche
