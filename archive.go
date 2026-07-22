@@ -857,12 +857,6 @@ loop:
 		}
 		hdr.Name = name
 
-		// Ensure that the parent directory exists.
-		err = createImpliedDirectories(dest, hdr, options)
-		if err != nil {
-			return err
-		}
-
 		// #nosec G305 -- The joined path is checked for path traversal.
 		dstPath := filepath.Join(dest, filepath.FromSlash(hdr.Name))
 		rel, err := filepath.Rel(dest, dstPath)
@@ -871,6 +865,12 @@ loop:
 		}
 		if !filepath.IsAbs(rel) {
 			return breakoutError(fmt.Errorf("%q is outside of %q", hdr.Name, dest))
+		}
+
+		// Ensure that the parent directory exists.
+		err = createImpliedDirectories(dest, hdr, options)
+		if err != nil {
+			return err
 		}
 
 		// If dstPath exists we almost always just want to remove and replace it.
