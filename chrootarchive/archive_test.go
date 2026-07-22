@@ -83,7 +83,6 @@ func TestChrootUntarWithHugeExcludesList(t *testing.T) {
 	if err := os.Mkdir(dest, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	options := &archive.TarOptions{}
 	// 65534 entries of 64-byte strings ~= 4MB of environment space which should overflow
 	// on most systems when passed via environment or command line arguments
 	excludes := make([]string, 65534)
@@ -91,8 +90,10 @@ func TestChrootUntarWithHugeExcludesList(t *testing.T) {
 	for i = range 65534 {
 		excludes[i] = strings.Repeat(string(i), 64)
 	}
-	options.ExcludePatterns = excludes
-	if err := Untar(stream, dest, options); err != nil {
+	err = Untar(stream, dest, &archive.TarOptions{
+		ExcludePatterns: excludes,
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 }
