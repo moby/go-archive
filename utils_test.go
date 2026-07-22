@@ -95,7 +95,8 @@ func testBreakout(untarFn string, tmpdir string, headers []*tar.Header) error {
 		return fmt.Errorf("could not find untar function %q in testUntarFns", untarFn)
 	}
 	if err := untar(dest, reader); err != nil {
-		if !errors.As(err, new(breakoutError)) {
+		var boErr *breakoutErr
+		if !errors.As(err, &boErr) {
 			// If untar returns an error unrelated to an archive breakout,
 			// then consider this an unexpected error and abort.
 			return err
