@@ -13,6 +13,7 @@ jobs:
   build:
     name: ${{ matrix.os }} / ${{ matrix.go-version || 'minimum' }}
     strategy:
+      fail-fast: false
       matrix:
         go-version:
           - "" # leave empty to use go-version-file (use go.mod); see https://github.com/actions/setup-go/issues/450#issuecomment-3620402646
@@ -45,7 +46,7 @@ jobs:
           MSYS_NO_PATHCONV: '1'
 
       - name: Test (root)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && !cancelled()
         run: go test -exec "sudo -E -n" -v -cover "-coverprofile=coverage.txt" -covermode=atomic ./...
         shell: bash
         env:
