@@ -87,7 +87,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 			// Regular files inside /.wh..wh.plnk can be used as hardlink targets
 			// We don't want this directory, but we need the files in them so that
 			// such hardlinks can be resolved.
-			if strings.HasPrefix(hdr.Name, WhiteoutLinkDir) && hdr.Typeflag == tar.TypeReg {
+			if strings.HasPrefix(hdr.Name, WhiteoutLinkDir+"/") && hdr.Typeflag == tar.TypeReg {
 				basename := path.Base(hdr.Name)
 				localBasename, err := filepath.Localize(basename)
 				if err != nil || filepath.Base(localBasename) != localBasename {
@@ -172,7 +172,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 
 			// Hard links into /.wh..wh.plnk don't work, as we don't extract that directory, so
 			// we manually retarget these into the temporary files we extracted them into
-			if hdr.Typeflag == tar.TypeLink && strings.HasPrefix(path.Clean(hdr.Linkname), WhiteoutLinkDir) {
+			if hdr.Typeflag == tar.TypeLink && strings.HasPrefix(path.Clean(hdr.Linkname), WhiteoutLinkDir+"/") {
 				linkBasename := path.Base(hdr.Linkname)
 				srcHdr = aufsHardlinks[linkBasename]
 				if srcHdr == nil {
