@@ -8,12 +8,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
 var testUntarFns = map[string]func(string, io.Reader) error{
 	"untar": func(dest string, r io.Reader) error {
-		return Untar(r, dest, nil)
+		return Untar(r, dest, &TarOptions{
+			NoLchown: true,
+		})
 	},
 	"applylayer": func(dest string, r io.Reader) error {
 		_, err := ApplyLayer(dest, r)
@@ -64,11 +67,21 @@ func testBreakout(untarFn string, tmpdir string, headers []*tar.Header) error {
 
 	reader, writer := io.Pipe()
 	go func() {
-		t := tar.NewWriter(writer)
-		for _, hdr := range headers {
-			_ = t.WriteHeader(hdr)
+		tw := tar.NewWriter(writer)
+		var uid, gid int
+		if runtime.GOOS != "windows" {
+			uid, gid = os.Getuid(), os.Getgid()
 		}
-		_ = t.Close()
+		for _, hdr := range headers {
+			// Use the current user to avoid unrelated EPERM failures from applying
+			// archive ownership. ApplyLayer always applies archive ownership and
+			// does not support TarOptions.NoLchown.
+			hdr := *hdr
+			hdr.Uid = uid
+			hdr.Gid = gid
+			_ = tw.WriteHeader(&hdr)
+		}
+		_ = tw.Close()
 	}()
 
 	untar := testUntarFns[untarFn]
