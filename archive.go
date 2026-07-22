@@ -95,10 +95,14 @@ func NewDefaultArchiver() *Archiver {
 	return &Archiver{Untar: Untar}
 }
 
-// breakoutError is used to differentiate errors related to breaking out
-// When testing archive breakout in the unit tests, this error is expected
-// in order for the test to pass.
-type breakoutError error
+// breakoutErr marks errors caused by archive breakout attempts.
+// Unit tests use it to distinguish expected breakout failures from other
+// errors.
+type breakoutErr struct{ error }
+
+func breakoutError(err error) error {
+	return &breakoutErr{error: err}
+}
 
 const (
 	AUFSWhiteoutFormat    WhiteoutFormat = 0 // AUFSWhiteoutFormat is the default format for whiteouts
