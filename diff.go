@@ -79,6 +79,16 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 			}
 		}
 
+		// #nosec G305 -- The joined path is guarded against path traversal.
+		dstPath := filepath.Join(dest, filepath.FromSlash(hdr.Name))
+		rel, err := filepath.Rel(dest, dstPath)
+		if err != nil {
+			return 0, err
+		}
+		if !filepath.IsLocal(rel) {
+			return 0, breakoutError(fmt.Errorf("%q is outside of %q", hdr.Name, dest))
+		}
+
 		// Ensure that the parent directory exists.
 		err = createImpliedDirectories(dest, hdr, options)
 		if err != nil {
@@ -112,17 +122,8 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 				continue
 			}
 		}
-		// #nosec G305 -- The joined path is guarded against path traversal.
-		dstPath := filepath.Join(dest, filepath.FromSlash(hdr.Name))
-		rel, err := filepath.Rel(dest, dstPath)
-		if err != nil {
-			return 0, err
-		}
-		if !filepath.IsLocal(rel) {
-			return 0, breakoutError(fmt.Errorf("%q is outside of %q", hdr.Name, dest))
-		}
-		base := filepath.Base(dstPath)
 
+		base := filepath.Base(dstPath)
 		if strings.HasPrefix(base, WhiteoutPrefix) {
 			dir := filepath.Dir(dstPath)
 			if base == WhiteoutOpaqueDir {
