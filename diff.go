@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/containerd/log"
@@ -45,28 +45,32 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 
 		size += hdr.Size
 
-		// Normalize name, for safety and for a simple is-root check
-		hdr.Name = filepath.Clean(hdr.Name)
+		// Strip any leading "/" so absolute entries stay root-relative, and
+		// normalize the POSIX tar path. Skip entries referring to the extraction
+		// root and reject paths that escape it.
+		name := path.Clean(strings.TrimLeft(hdr.Name, "/"))
+		if name == "." {
+			continue
+		}
+		if !filepath.IsLocal(name) {
+			return 0, breakoutError(fmt.Errorf("invalid entry name %q", hdr.Name))
+		}
+		hdr.Name = name
 
-		// Windows does not support filenames with colons in them. Ignore
-		// these files. This is not a problem though (although it might
-		// appear that it is). Let's suppose a client is running docker pull.
-		// The daemon it points to is Windows. Would it make sense for the
-		// client to be doing a docker pull Ubuntu for example (which has files
-		// with colons in the name under /usr/share/man/man3)? No, absolutely
-		// not as it would really only make sense that they were pulling a
-		// Windows image. However, for development, it is necessary to be able
-		// to pull Linux images which are in the repository.
-		//
-		// TODO Windows. Once the registry is aware of what images are Windows-
-		// specific or Linux-specific, this warning should be changed to an error
-		// to cater for the situation where someone does manage to upload a Linux
-		// image but have it tagged as Windows inadvertently.
-		if runtime.GOOS == "windows" {
-			if strings.Contains(hdr.Name, ":") {
-				log.G(context.TODO()).Warnf("Windows: Ignoring %s (is this a Linux image?)", hdr.Name)
-				continue
-			}
+		// Skip entries whose name (or hardlink target) Windows cannot represent.
+		if err := unrepresentableOnWindows(hdr); err != nil {
+			log.G(context.TODO()).Warnf("Windows: ignoring entry: %v", err)
+			continue
+		}
+
+		// #nosec G305 -- The joined path is guarded against path traversal.
+		dstPath := filepath.Join(dest, filepath.FromSlash(hdr.Name))
+		rel, err := filepath.Rel(dest, dstPath)
+		if err != nil {
+			return 0, err
+		}
+		if !filepath.IsLocal(rel) {
+			return 0, breakoutError(fmt.Errorf("%q is outside of %q", hdr.Name, dest))
 		}
 
 		// Ensure that the parent directory exists.
@@ -80,8 +84,12 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 			// Regular files inside /.wh..wh.plnk can be used as hardlink targets
 			// We don't want this directory, but we need the files in them so that
 			// such hardlinks can be resolved.
-			if strings.HasPrefix(hdr.Name, WhiteoutLinkDir) && hdr.Typeflag == tar.TypeReg {
-				basename := filepath.Base(hdr.Name)
+			if strings.HasPrefix(hdr.Name, WhiteoutLinkDir+"/") && hdr.Typeflag == tar.TypeReg {
+				basename := path.Base(hdr.Name)
+				localBasename, err := filepath.Localize(basename)
+				if err != nil || filepath.Base(localBasename) != localBasename {
+					return 0, breakoutError(fmt.Errorf("invalid AUFS hardlink name %q", hdr.Name))
+				}
 				aufsHardlinks[basename] = hdr
 				if aufsTempdir == "" {
 					if aufsTempdir, err = os.MkdirTemp(dest, "dockerplnk"); err != nil {
@@ -89,7 +97,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 					}
 					defer os.RemoveAll(aufsTempdir)
 				}
-				if err := createTarFile(filepath.Join(aufsTempdir, basename), dest, hdr, tr, options); err != nil {
+				if err := createTarFile(filepath.Join(aufsTempdir, localBasename), dest, hdr, tr, options); err != nil {
 					return 0, err
 				}
 			}
@@ -98,19 +106,8 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 				continue
 			}
 		}
-		// #nosec G305 -- The joined path is guarded against path traversal.
-		dstPath := filepath.Join(dest, hdr.Name)
-		rel, err := filepath.Rel(dest, dstPath)
-		if err != nil {
-			return 0, err
-		}
 
-		// Note as these operations are platform specific, so must the slash be.
-		if strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-			return 0, breakoutError(fmt.Errorf("%q is outside of %q", hdr.Name, dest))
-		}
 		base := filepath.Base(dstPath)
-
 		if strings.HasPrefix(base, WhiteoutPrefix) {
 			dir := filepath.Dir(dstPath)
 			if base == WhiteoutOpaqueDir {
@@ -161,13 +158,17 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 
 			// Hard links into /.wh..wh.plnk don't work, as we don't extract that directory, so
 			// we manually retarget these into the temporary files we extracted them into
-			if hdr.Typeflag == tar.TypeLink && strings.HasPrefix(filepath.Clean(hdr.Linkname), WhiteoutLinkDir) {
-				linkBasename := filepath.Base(hdr.Linkname)
+			if hdr.Typeflag == tar.TypeLink && strings.HasPrefix(path.Clean(hdr.Linkname), WhiteoutLinkDir+"/") {
+				linkBasename := path.Base(hdr.Linkname)
 				srcHdr = aufsHardlinks[linkBasename]
 				if srcHdr == nil {
-					return 0, errors.New("invalid aufs hardlink")
+					return 0, errors.New("invalid AUFS hardlink")
 				}
-				tmpFile, err := os.Open(filepath.Join(aufsTempdir, linkBasename))
+				localBasename, err := filepath.Localize(linkBasename)
+				if err != nil || filepath.Base(localBasename) != localBasename {
+					return 0, breakoutError(fmt.Errorf("invalid AUFS hardlink name %q", hdr.Linkname))
+				}
+				tmpFile, err := os.Open(filepath.Join(aufsTempdir, localBasename))
 				if err != nil {
 					return 0, err
 				}
@@ -194,7 +195,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 
 	for _, hdr := range dirs {
 		// #nosec G305 -- The header was checked for path traversal before it was appended to the dirs slice.
-		dstPath := filepath.Join(dest, hdr.Name)
+		dstPath := filepath.Join(dest, filepath.FromSlash(hdr.Name))
 		if err := chtimes(dstPath, hdr.AccessTime, hdr.ModTime); err != nil {
 			return 0, err
 		}
