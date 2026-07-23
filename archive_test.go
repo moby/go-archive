@@ -3,11 +3,11 @@ package archive
 import (
 	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -40,93 +40,121 @@ func defaultCopyWithTar(src, dst string) error {
 	return defaultArchiver.CopyWithTar(src, dst)
 }
 
-// toUnixPath converts the given path to a unix-path, using forward-slashes, and
-// with the drive-letter replaced (e.g. "C:\temp\file.txt" becomes "/c/temp/file.txt").
-// It is a no-op on non-Windows platforms.
-func toUnixPath(p string) string {
-	if runtime.GOOS != "windows" {
-		return p
-	}
-	p = filepath.ToSlash(p)
+func createTarFromFiles(t *testing.T, tarPath string, files ...string) {
+	t.Helper()
 
-	vol := strings.TrimPrefix(filepath.VolumeName(p), "//?/")
-	if len(vol) == 2 && vol[1] == ':' {
-		return "/" + strings.ToLower(vol[:1]) + p[len(filepath.VolumeName(p)):]
+	f, err := os.Create(tarPath)
+	assert.NilError(t, err)
+
+	tw := tar.NewWriter(f)
+	for _, filePath := range files {
+		info, err := os.Stat(filePath)
+		assert.NilError(t, err)
+
+		hdr, err := tar.FileInfoHeader(info, "")
+		assert.NilError(t, err)
+
+		// None of the tests require nested paths, so we simplify
+		// creation using just the basename to avoid conversion to/from
+		// POSIX paths (as used in Tar headers).
+		hdr.Name = filepath.Base(filePath)
+		assert.NilError(t, tw.WriteHeader(hdr))
+
+		if !info.Mode().IsRegular() {
+			continue
+		}
+
+		src, err := os.Open(filePath)
+		assert.NilError(t, err)
+
+		_, copyErr := io.Copy(tw, src)
+		closeErr := src.Close()
+		assert.NilError(t, copyErr)
+		assert.NilError(t, closeErr)
 	}
-	return p
+
+	assert.NilError(t, tw.Close())
+	assert.NilError(t, f.Close())
 }
 
 func TestIsArchivePathDir(t *testing.T) {
 	tmp := t.TempDir()
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("mkdir -p %s/archivedir", toUnixPath(tmp)))
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to create directory (%v): %s", err, output)
-	}
-	if IsArchivePath(filepath.Join(tmp, "archivedir")) {
-		t.Fatalf("Incorrectly recognised directory as an archive")
-	}
+	assert.NilError(t, os.Mkdir(filepath.Join(tmp, "archivedir"), 0o755))
+	assert.Check(t, !IsArchivePath(filepath.Join(tmp, "archivedir")), "incorrectly recognised directory as an archive")
 }
 
 func TestIsArchivePathInvalidFile(t *testing.T) {
 	tmp := t.TempDir()
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("dd if=/dev/zero bs=1024 count=1 of=%[1]s/archive && gzip --stdout %[1]s/archive > %[1]s/archive.gz", toUnixPath(tmp)))
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to create archive file (%v): %s", err, output)
-	}
-	if IsArchivePath(filepath.Join(tmp, "archive")) {
-		t.Fatalf("Incorrectly recognised invalid tar path as archive")
-	}
-	if IsArchivePath(filepath.Join(tmp, "archive.gz")) {
-		t.Fatalf("Incorrectly recognised invalid compressed tar path as archive")
-	}
+
+	archive := filepath.Join(tmp, "archive")
+	assert.NilError(t, os.WriteFile(archive, []byte("hello"), 0o644))
+
+	archiveGz := archive + ".gz"
+	f, err := os.Create(archiveGz)
+	assert.NilError(t, err)
+
+	gw := gzip.NewWriter(f)
+	_, err = gw.Write([]byte("hello"))
+	assert.NilError(t, err)
+	assert.NilError(t, gw.Close())
+	assert.NilError(t, f.Close())
+
+	assert.Check(t, !IsArchivePath(archive), "incorrectly recognised invalid tar path as archive")
+	assert.Check(t, !IsArchivePath(archiveGz), "incorrectly recognised invalid compressed tar path as archive")
 }
 
 func TestIsArchivePathTar(t *testing.T) {
 	tmp := t.TempDir()
-	cmdStr := fmt.Sprintf("touch %[1]s/archivedata && tar -cf %[1]s/archive %[1]s/archivedata && gzip --stdout %[1]s/archive > %[1]s/archive.gz", toUnixPath(tmp))
-	cmd := exec.Command("sh", "-c", cmdStr)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to create archive file (%v):\ncommand: %s\noutput: %s", err, cmd.String(), output)
-	}
-	if !IsArchivePath(filepath.Join(tmp, "/archive")) {
-		t.Fatalf("Did not recognise valid tar path as archive")
-	}
-	if !IsArchivePath(filepath.Join(tmp, "archive.gz")) {
-		t.Fatalf("Did not recognise valid compressed tar path as archive")
-	}
+	srcFile := filepath.Join(tmp, "archivedata")
+	f, err := os.Create(srcFile)
+	assert.NilError(t, err)
+	assert.NilError(t, f.Close())
+
+	tarFile := filepath.Join(tmp, "archive")
+	createTarFromFiles(t, tarFile, srcFile)
+
+	gzFile := tarFile + ".gz"
+	in, err := os.Open(tarFile)
+	assert.NilError(t, err)
+	defer in.Close()
+
+	out, err := os.Create(gzFile)
+	assert.NilError(t, err)
+
+	gw := gzip.NewWriter(out)
+
+	_, err = io.Copy(gw, in)
+	assert.NilError(t, err)
+	assert.NilError(t, gw.Close())
+	assert.NilError(t, out.Close())
+
+	assert.Check(t, IsArchivePath(tarFile), "did not recognise valid tar path as archive")
+	assert.Check(t, IsArchivePath(gzFile), "did not recognise valid compressed tar path as archive")
 }
 
 func TestUntarPathWithInvalidDest(t *testing.T) {
 	tempFolder := t.TempDir()
-	invalidDestFolder := filepath.Join(tempFolder, "invalidDest")
-	// Create a src file
-	srcFile := filepath.Join(tempFolder, "src")
+
 	tarFile := filepath.Join(tempFolder, "src.tar")
-	f, err := os.Create(srcFile)
-	if assert.Check(t, err) {
-		_ = f.Close()
-	}
+	f, err := os.Create(tarFile)
+	assert.NilError(t, err)
 
-	d, err := os.Create(invalidDestFolder) // being a file (not dir) should cause an error
-	if assert.Check(t, err) {
-		_ = d.Close()
-	}
+	tw := tar.NewWriter(f)
+	assert.NilError(t, tw.WriteHeader(&tar.Header{
+		Name: "src",
+		Mode: 0o644,
+		Size: 0,
+	}))
+	assert.NilError(t, tw.Close())
+	assert.NilError(t, f.Close())
 
-	// Translate back to Unix semantics as next exec.Command is run under sh
-	srcFileU := toUnixPath(srcFile)
-	tarFileU := toUnixPath(tarFile)
+	invalidDest := filepath.Join(tempFolder, "invalidDest")
+	d, err := os.Create(invalidDest) // being a file (not dir) should cause an error
+	assert.NilError(t, err)
+	assert.NilError(t, d.Close())
 
-	cmd := exec.Command("sh", "-c", "tar cf "+tarFileU+" "+srcFileU)
-	output, err := cmd.CombinedOutput()
-	assert.NilError(t, err, "command: %s\noutput: %s", cmd.String(), output)
-
-	err = defaultUntarPath(tarFile, invalidDestFolder)
-	if err == nil {
-		t.Fatalf("UntarPath with invalid destination path should throw an error.")
-	}
+	err = defaultUntarPath(tarFile, invalidDest)
+	assert.Assert(t, err != nil, "UntarPath with invalid destination path should return an error")
 }
 
 func TestUntarPathWithInvalidSrc(t *testing.T) {
@@ -140,63 +168,42 @@ func TestUntarPath(t *testing.T) {
 	skip.If(t, runtime.GOOS != "windows" && os.Getuid() != 0, "skipping test that requires root")
 	tmpFolder := t.TempDir()
 	srcFile := filepath.Join(tmpFolder, "src")
+	src, err := os.Create(srcFile)
+	assert.NilError(t, err)
+	assert.NilError(t, src.Close())
+
 	tarFile := filepath.Join(tmpFolder, "src.tar")
-	f, err := os.Create(filepath.Join(tmpFolder, "src"))
-	if assert.Check(t, err) {
-		_ = f.Close()
-	}
+	createTarFromFiles(t, tarFile, srcFile)
 
 	destFolder := filepath.Join(tmpFolder, "dest")
-	err = os.MkdirAll(destFolder, 0o740)
-	if err != nil {
-		t.Fatalf("Fail to create the destination file")
-	}
-
-	// Translate back to Unix semantics as next exec.Command is run under sh
-	srcFileU := toUnixPath(srcFile)
-	tarFileU := toUnixPath(tarFile)
-	cmd := exec.Command("sh", "-c", "tar cf "+tarFileU+" "+srcFileU)
-	output, err := cmd.CombinedOutput()
-	assert.NilError(t, err, "command: %s\noutput: %s", cmd.String(), output)
+	assert.NilError(t, os.MkdirAll(destFolder, 0o740))
 
 	err = defaultUntarPath(tarFile, destFolder)
-	if err != nil {
-		t.Fatalf("UntarPath shouldn't throw an error, %s.", err)
-	}
-	expectedFile := filepath.Join(destFolder, srcFileU)
+	assert.NilError(t, err, "UntarPath shouldn't return an error")
+
+	expectedFile := filepath.Join(destFolder, filepath.Base(srcFile))
 	_, err = os.Stat(expectedFile)
-	if err != nil {
-		t.Fatalf("Destination folder should contain the source file but did not.")
-	}
+	assert.NilError(t, err, "destination folder should contain the source file")
 }
 
 // Do the same test as above but with the destination as file, it should fail
 func TestUntarPathWithDestinationFile(t *testing.T) {
 	tmpFolder := t.TempDir()
 	srcFile := filepath.Join(tmpFolder, "src")
-	tarFile := filepath.Join(tmpFolder, "src.tar")
-	f, err := os.Create(filepath.Join(tmpFolder, "src"))
-	if assert.Check(t, err) {
-		_ = f.Close()
-	}
+	src, err := os.Create(srcFile)
+	assert.NilError(t, err)
+	assert.NilError(t, src.Close())
 
-	// Translate back to Unix semantics as next exec.Command is run under sh
-	srcFileU := toUnixPath(srcFile)
-	tarFileU := toUnixPath(tarFile)
-	cmd := exec.Command("sh", "-c", "tar cf "+tarFileU+" "+srcFileU)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to create archive file (%v):\ncommand: %s\noutput: %s", err, cmd.String(), output)
-	}
+	tarFile := filepath.Join(tmpFolder, "src.tar")
+	createTarFromFiles(t, tarFile, srcFile)
+
 	destFile := filepath.Join(tmpFolder, "dest")
-	f, err = os.Create(destFile)
-	if assert.Check(t, err) {
-		_ = f.Close()
-	}
+	f, err := os.Create(destFile)
+	assert.NilError(t, err)
+	assert.NilError(t, f.Close())
+
 	err = defaultUntarPath(tarFile, destFile)
-	if err == nil {
-		t.Fatalf("UntarPath should throw an error if the destination if a file")
-	}
+	assert.Assert(t, err != nil, "UntarPath should return an error if the destination is a file")
 }
 
 // Do the same test as above but with the destination folder already exists
@@ -205,36 +212,22 @@ func TestUntarPathWithDestinationFile(t *testing.T) {
 func TestUntarPathWithDestinationSrcFileAsFolder(t *testing.T) {
 	tmpFolder := t.TempDir()
 	srcFile := filepath.Join(tmpFolder, "src")
+	src, err := os.Create(srcFile)
+	assert.NilError(t, err)
+	assert.NilError(t, src.Close())
+
 	tarFile := filepath.Join(tmpFolder, "src.tar")
-	f, err := os.Create(srcFile)
-	if assert.Check(t, err) {
-		_ = f.Close()
-	}
+	createTarFromFiles(t, tarFile, srcFile)
 
-	// Translate back to Unix semantics as next exec.Command is run under sh
-	srcFileU := toUnixPath(srcFile)
-	tarFileU := toUnixPath(tarFile)
-
-	cmd := exec.Command("sh", "-c", "tar cf "+tarFileU+" "+srcFileU)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to create archive file (%v):\ncommand: %s\noutput: %s", err, cmd.String(), output)
-	}
 	destFolder := filepath.Join(tmpFolder, "dest")
-	err = os.MkdirAll(destFolder, 0o740)
-	if err != nil {
-		t.Fatalf("Fail to create the destination folder")
-	}
+	assert.NilError(t, os.MkdirAll(destFolder, 0o740))
+
 	// Let's create a folder that will has the same path as the extracted file (from tar)
-	destSrcFileAsFolder := filepath.Join(destFolder, srcFileU)
-	err = os.MkdirAll(destSrcFileAsFolder, 0o740)
-	if err != nil {
-		t.Fatal(err)
-	}
+	destSrcFileAsFolder := filepath.Join(destFolder, filepath.Base(srcFile))
+	assert.NilError(t, os.MkdirAll(destSrcFileAsFolder, 0o740))
+
 	err = defaultUntarPath(tarFile, destFolder)
-	if err != nil {
-		t.Fatalf("UntarPath should throw not throw an error if the extracted file already exists and is a folder")
-	}
+	assert.NilError(t, err, "UntarPath should not return an error if the extracted file already exists as a directory")
 }
 
 func TestCopyWithTarInvalidSrc(t *testing.T) {
