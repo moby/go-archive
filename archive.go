@@ -233,7 +233,7 @@ func FileInfoHeader(name string, fi os.FileInfo, link string) (*tar.Header, erro
 	hdr.ModTime = hdr.ModTime.Truncate(time.Second)
 	hdr.AccessTime = time.Time{}
 	hdr.ChangeTime = time.Time{}
-	hdr.Mode = int64(chmodTarEntry(os.FileMode(hdr.Mode)))
+	hdr.Mode = chmodTarEntry(hdr.Mode)
 	hdr.Name = canonicalTarName(name, fi.IsDir())
 	return hdr, nil
 }
@@ -1105,7 +1105,7 @@ func (archiver *Archiver) CopyFileWithTar(src, dst string) (err error) {
 			hdr.AccessTime = time.Time{}
 			hdr.ChangeTime = time.Time{}
 			hdr.Name = filepath.Base(dst)
-			hdr.Mode = int64(chmodTarEntry(os.FileMode(hdr.Mode)))
+			hdr.Mode = chmodTarEntry(hdr.Mode)
 
 			if err := remapIDs(archiver.IDMapping, hdr); err != nil {
 				return err

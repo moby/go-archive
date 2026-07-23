@@ -173,7 +173,7 @@ func testBreakout(untarFn string, tmpdir string, headers []*tar.Header) error {
 			// skip file if error
 			return nil
 		}
-		b, err := os.ReadFile(path)
+		b, err := os.ReadFile(path) // #nosec G122 -- TOCTOU / filesystem traversal safe to ignore for tests.
 		if err != nil {
 			// Houston, we have a problem. Aborting (space)walk.
 			return err

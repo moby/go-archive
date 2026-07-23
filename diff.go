@@ -129,7 +129,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 						return nil
 					}
 					if _, exists := unpackedPaths[path]; !exists {
-						return os.RemoveAll(path)
+						return os.RemoveAll(path) // #nosec G122 -- FIXME: consider root-scoped APIs (e.g. os.Root) to prevent symlink TOCTOU traversal
 					}
 					return nil
 				})
