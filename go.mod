@@ -7,11 +7,11 @@ require (
 	github.com/containerd/log v0.1.0
 	github.com/klauspost/compress v1.18.7
 	github.com/moby/patternmatcher v0.6.1
-	github.com/moby/sys/mount v0.3.4
+	github.com/moby/sys/mount v0.3.5
 	github.com/moby/sys/mountinfo v0.7.2
 	github.com/moby/sys/reexec v0.1.0
 	github.com/moby/sys/sequential v0.7.0
-	github.com/moby/sys/user v0.4.0
+	github.com/moby/sys/user v0.4.1
 	github.com/moby/sys/userns v0.1.0
 	golang.org/x/sys v0.37.0
 	gotest.tools/v3 v3.5.2
