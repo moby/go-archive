@@ -77,7 +77,12 @@ func (c overlayWhiteoutConverter) ConvertWrite(hdr *tar.Header, filePath string,
 }
 
 func (c overlayWhiteoutConverter) ConvertRead(hdr *tar.Header, filePath string) (bool, error) {
-	base := filepath.Base(filePath)
+	name := path.Clean(hdr.Name)
+	if name == WhiteoutLinkDir || strings.HasPrefix(name, WhiteoutLinkDir+"/") {
+		// AUFS-internal hardlink metadata is not part of the extracted filesystem.
+		return false, fmt.Errorf("invalid whiteout entry %q", hdr.Name)
+	}
+	base := path.Base(name)
 	dir := filepath.Dir(filePath)
 
 	switch base {
