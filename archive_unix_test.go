@@ -128,6 +128,63 @@ func TestImpliedDirectoryPermissions(t *testing.T) {
 	}
 }
 
+func TestUnpackLayerCreatesImpliedDirectoriesThroughLowerLayerSymlink(t *testing.T) {
+	const content = "content"
+
+	lowerLayer := &bytes.Buffer{}
+	w := tar.NewWriter(lowerLayer)
+	for _, header := range []tar.Header{
+		{
+			Name:     "usr/",
+			Typeflag: tar.TypeDir,
+			Mode:     0o755,
+		},
+		{
+			Name:     "usr/lib/",
+			Typeflag: tar.TypeDir,
+			Mode:     0o755,
+		},
+		{
+			Name:     "lib",
+			Typeflag: tar.TypeSymlink,
+			Linkname: "usr/lib",
+			Mode:     0o777,
+		},
+	} {
+		assert.NilError(t, w.WriteHeader(&header))
+	}
+	assert.NilError(t, w.Close())
+
+	dest := t.TempDir()
+	options := &TarOptions{NoLchown: true}
+	_, err := UnpackLayer(dest, lowerLayer, options)
+	assert.NilError(t, err)
+
+	upperLayer := &bytes.Buffer{}
+	w = tar.NewWriter(upperLayer)
+	err = w.WriteHeader(&tar.Header{
+		Name:     "lib/systemd/system/container.service",
+		Typeflag: tar.TypeReg,
+		Mode:     0o644,
+		Size:     int64(len(content)),
+	})
+	assert.NilError(t, err)
+	_, err = io.WriteString(w, content)
+	assert.NilError(t, err)
+	assert.NilError(t, w.Close())
+
+	_, err = UnpackLayer(dest, upperLayer, options)
+	assert.NilError(t, err)
+
+	target, err := os.Readlink(filepath.Join(dest, "lib"))
+	assert.NilError(t, err)
+	assert.Equal(t, target, "usr/lib")
+
+	actual, err := os.ReadFile(filepath.Join(dest, "usr/lib/systemd/system/container.service"))
+	assert.NilError(t, err)
+	assert.DeepEqual(t, actual, []byte(content))
+}
+
 func TestTarWithHardLink(t *testing.T) {
 	tmpDir := t.TempDir()
 	origin, err := os.MkdirTemp(tmpDir, "docker-test-tar-hardlink")
