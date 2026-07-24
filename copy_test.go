@@ -21,6 +21,13 @@ func TestRebaseArchiveEntriesPlatformPaths(t *testing.T) {
 		wantLinkName string
 	}{
 		{
+			name:       "rebase from root",
+			oldBase:    "/",
+			newBase:    "prefix",
+			headerName: "foo/bar",
+			wantName:   "prefix/foo/bar",
+		},
+		{
 			name:       "regular file",
 			oldBase:    filepath.Join("origin", "subdir"),
 			newBase:    filepath.Join("dest", "target"),
@@ -51,6 +58,15 @@ func TestRebaseArchiveEntriesPlatformPaths(t *testing.T) {
 			linkName:     "origin/subdir/file",
 			wantName:     "dest/target/link",
 			wantLinkName: "dest/target/file",
+		},
+		{
+			name:         "hardlink rebase from root",
+			oldBase:      "/",
+			newBase:      "prefix",
+			headerName:   "link",
+			linkName:     "target",
+			wantName:     "prefix/link",
+			wantLinkName: "prefix/target",
 		},
 	}
 

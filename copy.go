@@ -327,6 +327,10 @@ func RebaseArchiveEntries(srcContent io.Reader, oldBase, newBase string) io.Read
 		// oldBase instead so that newBase doesn't replace the path separator
 		// that all paths will start with.
 		oldBase = ""
+		newBase = strings.TrimSuffix(newBase, "/")
+		if newBase != "" {
+			newBase += "/"
+		}
 	}
 
 	rebased, w := io.Pipe()
