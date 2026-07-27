@@ -103,10 +103,10 @@ func handleLChmod(dc *dirCache, root *os.Root, dstPath string, hdr *tar.Header, 
 		if err != nil || fi.Mode()&os.ModeSymlink != 0 {
 			return nil
 		}
-		return dc.chmod(root, dstPath, hdrInfo.Mode())
+		return dc.chmod(dstPath, hdrInfo.Mode())
 
 	default:
-		return dc.chmod(root, dstPath, hdrInfo.Mode())
+		return dc.chmod(dstPath, hdrInfo.Mode())
 	}
 }
 

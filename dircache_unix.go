@@ -11,6 +11,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func newDirCache(root *os.Root) *dirCache {
+	return &dirCache{root: root}
+}
+
 // dirCache caches an open *os.File for the most recently accessed parent
 // directory, eliminating repeated doInRoot path walks for consecutive tar
 // entries in the same directory. doInRoot opens every path component on
@@ -38,8 +42,8 @@ func (dc *dirCache) close() {
 
 // openDir returns an open *os.File for dir within root, reusing the cached
 // fd when possible and re-opening via root.OpenFile otherwise.
-func (dc *dirCache) openDir(root *os.Root, dir string) (*os.File, error) {
-	if dc.file != nil && dc.root == root && dc.path == dir {
+func (dc *dirCache) openDir(dir string) (*os.File, error) {
+	if dc.file != nil && dc.path == dir {
 		return dc.file, nil
 	}
 	if dc.file != nil {
@@ -48,20 +52,19 @@ func (dc *dirCache) openDir(root *os.Root, dir string) (*os.File, error) {
 	}
 	// Open through root so that path resolution is bounded within the
 	// root's security boundary before we cache the raw fd.
-	f, err := root.OpenFile(dir, os.O_RDONLY, 0)
+	f, err := dc.root.OpenFile(dir, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}
 	dc.file = f
 	dc.path = dir
-	dc.root = root
 	return f, nil
 }
 
 // openFile creates or truncates the file at path within root, using
 // openat(2) on the cached parent directory fd.
-func (dc *dirCache) openFile(root *os.Root, path string, flag int, perm os.FileMode) (*os.File, error) {
-	d, err := dc.openDir(root, filepath.Dir(path))
+func (dc *dirCache) openFile(path string, flag int, perm os.FileMode) (*os.File, error) {
+	d, err := dc.openDir(filepath.Dir(path))
 	if err != nil {
 		return nil, err
 	}
@@ -77,8 +80,8 @@ func (dc *dirCache) openFile(root *os.Root, path string, flag int, perm os.FileM
 // isExistingDir reports whether path within root exists and is a directory.
 // A false return with a nil error means the path does not exist or is not a
 // directory; the caller should attempt to create it.
-func (dc *dirCache) isExistingDir(root *os.Root, path string) (bool, error) {
-	d, err := dc.openDir(root, filepath.Dir(path))
+func (dc *dirCache) isExistingDir(path string) (bool, error) {
+	d, err := dc.openDir(filepath.Dir(path))
 	if err != nil {
 		return false, err
 	}
@@ -93,8 +96,8 @@ func (dc *dirCache) isExistingDir(root *os.Root, path string) (bool, error) {
 }
 
 // mkdir creates a directory at path within root.
-func (dc *dirCache) mkdir(root *os.Root, path string, perm os.FileMode) error {
-	d, err := dc.openDir(root, filepath.Dir(path))
+func (dc *dirCache) mkdir(path string, perm os.FileMode) error {
+	d, err := dc.openDir(filepath.Dir(path))
 	if err != nil {
 		return err
 	}
@@ -106,8 +109,8 @@ func (dc *dirCache) mkdir(root *os.Root, path string, perm os.FileMode) error {
 }
 
 // lchown sets ownership of path without following symlinks.
-func (dc *dirCache) lchown(root *os.Root, path string, uid, gid int) error {
-	d, err := dc.openDir(root, filepath.Dir(path))
+func (dc *dirCache) lchown(path string, uid, gid int) error {
+	d, err := dc.openDir(filepath.Dir(path))
 	if err != nil {
 		return err
 	}
@@ -120,8 +123,8 @@ func (dc *dirCache) lchown(root *os.Root, path string, uid, gid int) error {
 
 // chmod sets the permission bits of path. It follows symlinks (i.e. acts on
 // the target); callers must not invoke this for TypeSymlink entries.
-func (dc *dirCache) chmod(root *os.Root, path string, mode os.FileMode) error {
-	d, err := dc.openDir(root, filepath.Dir(path))
+func (dc *dirCache) chmod(path string, mode os.FileMode) error {
+	d, err := dc.openDir(filepath.Dir(path))
 	if err != nil {
 		return err
 	}
@@ -134,8 +137,8 @@ func (dc *dirCache) chmod(root *os.Root, path string, mode os.FileMode) error {
 
 // chtimes sets access and modification times of path, following symlinks.
 // Callers must not invoke this for TypeSymlink entries.
-func (dc *dirCache) chtimes(root *os.Root, path string, atime, mtime time.Time) error {
-	d, err := dc.openDir(root, filepath.Dir(path))
+func (dc *dirCache) chtimes(path string, atime, mtime time.Time) error {
+	d, err := dc.openDir(filepath.Dir(path))
 	if err != nil {
 		return err
 	}
@@ -149,8 +152,8 @@ func (dc *dirCache) chtimes(root *os.Root, path string, atime, mtime time.Time) 
 
 // lchtimes sets access and modification times of a symlink at path without
 // following the symlink.
-func (dc *dirCache) lchtimes(root *os.Root, path string, atime, mtime time.Time) error {
-	d, err := dc.openDir(root, filepath.Dir(path))
+func (dc *dirCache) lchtimes(path string, atime, mtime time.Time) error {
+	d, err := dc.openDir(filepath.Dir(path))
 	if err != nil {
 		return err
 	}

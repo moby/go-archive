@@ -579,8 +579,9 @@ func TestTypeXGlobalHeaderDoesNotFail(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer root.Close()
-	var dc dirCache
-	err = createTarFile(&dc, root, "pax_global_header", &hdr, nil, nil)
+	dc := newDirCache(root)
+	defer dc.close()
+	err = createTarFile(dc, root, "pax_global_header", &hdr, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,8 +625,9 @@ func TestCreateTarFileSymlinkPreservesLinkname(t *testing.T) {
 				Linkname: tc.linkname,
 			}
 
-			var dc dirCache
-			err = createTarFile(&dc, root, hdr.Name, &hdr, nil, &TarOptions{
+			dc := newDirCache(root)
+			defer dc.close()
+			err = createTarFile(dc, root, hdr.Name, &hdr, nil, &TarOptions{
 				NoLchown: true,
 			})
 			if err != nil {

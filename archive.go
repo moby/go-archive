@@ -469,12 +469,12 @@ func createTarFile(dc *dirCache, root *os.Root, dstPath string, hdr *tar.Header,
 		// os.Root.Mkdir only accepts the nine least-significant permission
 		// bits; special bits (setuid, setgid, sticky) are applied afterward
 		// by handleLChmod via root.Chmod.
-		isDir, err := dc.isExistingDir(root, dstPath)
+		isDir, err := dc.isExistingDir(dstPath)
 		if err != nil {
 			return err
 		}
 		if !isDir {
-			if err := dc.mkdir(root, dstPath, hdrInfo.Mode()&0o777); err != nil {
+			if err := dc.mkdir(dstPath, hdrInfo.Mode()&0o777); err != nil {
 				return err
 			}
 		}
@@ -486,7 +486,7 @@ func createTarFile(dc *dirCache, root *os.Root, dstPath string, hdr *tar.Header,
 		// bits; special bits are applied afterward by handleLChmod.
 		// We use sequential file access to avoid depleting the standby list
 		// on Windows (go1.26). On Linux, this equates to a regular os.OpenFile.
-		file, err := dc.openFile(root, dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|windows_O_FILE_FLAG_SEQUENTIAL_SCAN, hdrInfo.Mode()&0o777)
+		file, err := dc.openFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|windows_O_FILE_FLAG_SEQUENTIAL_SCAN, hdrInfo.Mode()&0o777)
 		if err != nil {
 			return err
 		}
@@ -555,7 +555,7 @@ func createTarFile(dc *dirCache, root *os.Root, dstPath string, hdr *tar.Header,
 		if chownOpts == nil {
 			chownOpts = &ChownOpts{UID: hdr.Uid, GID: hdr.Gid}
 		}
-		if err := dc.lchown(root, dstPath, chownOpts.UID, chownOpts.GID); err != nil {
+		if err := dc.lchown(dstPath, chownOpts.UID, chownOpts.GID); err != nil {
 			var msg string
 			if inUserns && errors.Is(err, syscall.EINVAL) {
 				msg = " (try increasing the number of subordinate IDs in /etc/subuid and /etc/subgid)"
@@ -608,20 +608,20 @@ func createTarFile(dc *dirCache, root *os.Root, dstPath string, hdr *tar.Header,
 	switch hdr.Typeflag {
 	case tar.TypeSymlink:
 		// Apply timestamps to the symlink itself (AT_SYMLINK_NOFOLLOW).
-		if err := dc.lchtimes(root, dstPath, aTime, mTime); err != nil {
+		if err := dc.lchtimes(dstPath, aTime, mTime); err != nil {
 			return err
 		}
 	case tar.TypeLink:
 		// Follow the hardlink only when its target is not itself a symlink.
 		fi, err := root.Lstat(filepath.FromSlash(path.Clean(hdr.Linkname)))
 		if err == nil && fi.Mode()&os.ModeSymlink == 0 {
-			if err := dc.chtimes(root, dstPath, aTime, mTime); err != nil {
+			if err := dc.chtimes(dstPath, aTime, mTime); err != nil {
 				return err
 			}
 		}
 	default:
 		// All other file types follow symlinks.
-		if err := dc.chtimes(root, dstPath, aTime, mTime); err != nil {
+		if err := dc.chtimes(dstPath, aTime, mTime); err != nil {
 			return err
 		}
 	}
@@ -890,7 +890,7 @@ func Unpack(decompressedArchive io.Reader, dest string, options *TarOptions) err
 
 	// dc caches the last-opened parent directory fd so that consecutive
 	// entries in the same directory avoid re-walking the full path.
-	var dc dirCache
+	dc := newDirCache(root)
 	defer dc.close()
 
 	var dirs []unpackedDir
@@ -993,7 +993,7 @@ loop:
 			}
 		}
 
-		if err := createTarFile(&dc, root, dstPath, hdr, tr, options); err != nil {
+		if err := createTarFile(dc, root, dstPath, hdr, tr, options); err != nil {
 			return err
 		}
 

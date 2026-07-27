@@ -30,7 +30,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 
 	// dc caches the last-opened parent directory fd so that consecutive
 	// entries in the same directory avoid re-walking the full path.
-	var dc dirCache
+	dc := newDirCache(root)
 	defer dc.close()
 
 	var dirs []unpackedDir
@@ -100,8 +100,8 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 				if err != nil {
 					return 0, err
 				}
-				var aufsDC dirCache
-				cerr := createTarFile(&aufsDC, aufsRoot, basename, hdr, tr, options)
+				aufsDC := newDirCache(aufsRoot)
+				cerr := createTarFile(aufsDC, aufsRoot, basename, hdr, tr, options)
 				aufsDC.close()
 				_ = aufsRoot.Close()
 				if cerr != nil {
@@ -204,7 +204,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 				return 0, err
 			}
 
-			if err := createTarFile(&dc, root, dstPath, srcHdr, srcData, options); err != nil {
+			if err := createTarFile(dc, root, dstPath, srcHdr, srcData, options); err != nil {
 				return 0, err
 			}
 
