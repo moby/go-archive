@@ -85,7 +85,7 @@ func TestChtimesSetsCreationTime(t *testing.T) {
 
 	aTime := time.Date(2000, time.January, 2, 3, 4, 5, 0, time.UTC)
 	mTime := time.Date(2001, time.February, 3, 4, 5, 6, 0, time.UTC)
-	assert.NilError(t, root.Chtimes("file", aTime, mTime))
+	assert.NilError(t, chtimes(root, "file", aTime, mTime))
 
 	fi, err := root.Stat("file")
 	assert.NilError(t, err)

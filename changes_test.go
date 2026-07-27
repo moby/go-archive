@@ -122,7 +122,7 @@ func provisionSampleDir(t *testing.T, rootPath string, files []FileData) {
 
 		if info.filetype != Symlink {
 			// Set a consistent ctime, atime for all files and dirs
-			err := chtimes(filepath.Join(rootPath, name), now, now)
+			err := chtimes(root, name, now, now)
 			assert.NilError(t, err)
 		}
 	}
@@ -310,7 +310,7 @@ func mutateSampleDir(t *testing.T, rootPath string) {
 	assert.NilError(t, err)
 
 	// Touch file
-	err = chtimes(filepath.Join(rootPath, "file4"), time.Now().Add(time.Second), time.Now().Add(time.Second))
+	err = chtimes(root, "file4", time.Now().Add(time.Second), time.Now().Add(time.Second))
 	assert.NilError(t, err)
 
 	// Replace file with dir
@@ -345,7 +345,7 @@ func mutateSampleDir(t *testing.T, rootPath string) {
 	assert.NilError(t, err)
 
 	// Touch dir
-	err = chtimes(filepath.Join(rootPath, "dir3"), time.Now().Add(time.Second), time.Now().Add(time.Second))
+	err = chtimes(root, "dir3", time.Now().Add(time.Second), time.Now().Add(time.Second))
 	assert.NilError(t, err)
 }
 
