@@ -5,10 +5,6 @@ package archive
 import (
 	"errors"
 	"os"
-	"path"
-	"path/filepath"
-	"strings"
-	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -33,23 +29,9 @@ func timeToTimespec(time time.Time) unix.Timespec {
 	return unix.NsecToTimespec(time.UnixNano())
 }
 
-func lchtimes(root *os.Root, name string, atime, mtime time.Time) error {
-	dir, base := path.Split(filepath.ToSlash(name))
-	if base == "" {
-		return &os.PathError{Op: "lchtimes", Path: name, Err: syscall.EINVAL}
-	}
-
-	dir = strings.TrimSuffix(dir, "/")
-	if dir == "" {
-		dir = "."
-	}
-
-	parent, err := root.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer parent.Close()
-
+// lchtimesAt sets the access and modification times of the symbolic link
+// named by base relative to parent using AT_SYMLINK_NOFOLLOW.
+func lchtimesAt(parent *os.File, base string, atime, mtime time.Time) error {
 	utimes := [2]unix.Timespec{
 		timeToTimespec(atime),
 		timeToTimespec(mtime),
@@ -59,7 +41,7 @@ func lchtimes(root *os.Root, name string, atime, mtime time.Time) error {
 		if errors.Is(err, unix.ENOSYS) {
 			return nil
 		}
-		return &os.PathError{Op: "lchtimes", Path: name, Err: err}
+		return err
 	}
 	return nil
 }

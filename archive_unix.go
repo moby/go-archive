@@ -88,7 +88,10 @@ func handleTarTypeBlockCharFifo(root *os.Root, hdr *tar.Header, dstPath string) 
 // handleLChmod applies the mode from hdrInfo to dstPath within root, skipping
 // symlinks (there is no lchmod). For hardlinks, the mode is applied only when
 // the link target is itself not a symlink.
-func handleLChmod(root *os.Root, dstPath string, hdr *tar.Header, hdrInfo os.FileInfo) error {
+//
+// dc caches the last-used parent directory fd to avoid repeated path walks
+// for consecutive entries in the same directory.
+func handleLChmod(dc *dirCache, root *os.Root, dstPath string, hdr *tar.Header, hdrInfo os.FileInfo) error {
 	switch hdr.Typeflag {
 	case tar.TypeSymlink:
 		return nil
@@ -100,17 +103,17 @@ func handleLChmod(root *os.Root, dstPath string, hdr *tar.Header, hdrInfo os.Fil
 		if err != nil || fi.Mode()&os.ModeSymlink != 0 {
 			return nil
 		}
-		return chmodNoSymlink(root, dstPath, hdrInfo.Mode())
+		return dc.chmod(dstPath, hdrInfo.Mode())
 
 	default:
-		return chmodNoSymlink(root, dstPath, hdrInfo.Mode())
+		return dc.chmod(dstPath, hdrInfo.Mode())
 	}
 }
 
 // chmodNoSymlink applies mode to a non-symlink entry.
 //
 // Callers must have already excluded symlink entries.
-func chmodNoSymlink(root *os.Root, name string, mode os.FileMode) error {
+func chmodNoSymlink(root *os.Root, name string, mode os.FileMode) error { //nolint:unused
 	parent, err := root.OpenFile(filepath.Dir(name), os.O_RDONLY, 0)
 	if err != nil {
 		return err
