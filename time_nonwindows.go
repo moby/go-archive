@@ -22,17 +22,6 @@ func chtimes(name string, atime time.Time, mtime time.Time) error {
 	return os.Chtimes(name, atime, mtime)
 }
 
-func timeToTimespec(time time.Time) unix.Timespec {
-	if time.IsZero() {
-		// Return UTIME_OMIT special value
-		return unix.Timespec{
-			Sec:  0,
-			Nsec: (1 << 30) - 2,
-		}
-	}
-	return unix.NsecToTimespec(time.UnixNano())
-}
-
 func lchtimes(root *os.Root, name string, atime, mtime time.Time) error {
 	dir, base := path.Split(filepath.ToSlash(name))
 	if base == "" {
@@ -62,4 +51,15 @@ func lchtimes(root *os.Root, name string, atime, mtime time.Time) error {
 		return &os.PathError{Op: "lchtimes", Path: name, Err: err}
 	}
 	return nil
+}
+
+func timeToTimespec(time time.Time) unix.Timespec {
+	if time.IsZero() {
+		// Return UTIME_OMIT special value
+		return unix.Timespec{
+			Sec:  0,
+			Nsec: (1 << 30) - 2,
+		}
+	}
+	return unix.NsecToTimespec(time.UnixNano())
 }
