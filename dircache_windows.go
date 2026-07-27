@@ -49,8 +49,3 @@ func (dc *dirCache) lchown(path string, uid, gid int) error {
 func (dc *dirCache) chtimes(path string, atime, mtime time.Time) error {
 	return dc.root.Chtimes(path, atime, mtime)
 }
-
-// lchtimes is a no-op on Windows; symlink timestamps are not supported.
-func (dc *dirCache) lchtimes(path string, atime, mtime time.Time) error {
-	return nil
-}

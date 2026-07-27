@@ -607,9 +607,13 @@ func createTarFile(dc *dirCache, root *os.Root, dstPath string, hdr *tar.Header,
 
 	switch hdr.Typeflag {
 	case tar.TypeSymlink:
-		// Apply timestamps to the symlink itself (AT_SYMLINK_NOFOLLOW).
-		if err := dc.lchtimes(dstPath, aTime, mTime); err != nil {
-			return err
+		// Apply timestamps to the symlink itself.
+		parent, err := dc.openDir(filepath.Dir(dstPath))
+		if err != nil {
+			return &os.PathError{Op: "lchtimes", Path: dstPath, Err: err}
+		}
+		if err := lchtimesAt(parent, filepath.Base(dstPath), aTime, mTime); err != nil {
+			return &os.PathError{Op: "lchtimes", Path: dstPath, Err: err}
 		}
 	case tar.TypeLink:
 		// Follow the hardlink only when its target is not itself a symlink.

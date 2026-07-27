@@ -149,18 +149,3 @@ func (dc *dirCache) chtimes(path string, atime, mtime time.Time) error {
 	}
 	return nil
 }
-
-// lchtimes sets access and modification times of a symlink at path without
-// following the symlink.
-func (dc *dirCache) lchtimes(path string, atime, mtime time.Time) error {
-	d, err := dc.openDir(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	utimes := [2]unix.Timespec{timeToTimespec(atime), timeToTimespec(mtime)}
-	// #nosec G115 -- ignore integer overflow conversion for parent.Fd
-	if err := unix.UtimesNanoAt(int(d.Fd()), filepath.Base(path), utimes[0:], unix.AT_SYMLINK_NOFOLLOW); err != nil && err != unix.ENOSYS {
-		return &os.PathError{Op: "utimensat", Path: path, Err: err}
-	}
-	return nil
-}
