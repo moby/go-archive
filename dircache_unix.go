@@ -66,7 +66,7 @@ func (dc *dirCache) openFile(root *os.Root, path string, flag int, perm os.FileM
 		return nil, err
 	}
 	// #nosec G115 -- ignore integer overflow conversion for parent.Fd
-	fd, err := unix.Openat(int(d.Fd()), filepath.Base(path), flag|syscall.O_CLOEXEC, uint32(perm))
+	fd, err := unix.Openat(int(d.Fd()), filepath.Base(path), flag|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, uint32(perm))
 	if err != nil {
 		return nil, &os.PathError{Op: "openat", Path: path, Err: err}
 	}
