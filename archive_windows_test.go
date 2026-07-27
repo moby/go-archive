@@ -5,7 +5,11 @@ package archive
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
+
+	"gotest.tools/v3/assert"
 )
 
 func TestCopyFileWithInvalidDest(t *testing.T) {
@@ -66,4 +70,36 @@ func TestChmodTarEntry(t *testing.T) {
 			t.Fatalf("wrong chmod: expected=%#o got=%#o", v.expected, out)
 		}
 	}
+}
+
+// TestChtimesSetsCreationTime verifies that updating file timestamps also
+// sets the Windows creation time from the modification time.
+func TestChtimesSetsCreationTime(t *testing.T) {
+	tmpDir := t.TempDir()
+	file := filepath.Join(tmpDir, "file")
+	assert.NilError(t, os.WriteFile(file, []byte("hello toto"), 0o644))
+
+	root, err := os.OpenRoot(tmpDir)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = root.Close() })
+
+	aTime := time.Date(2000, time.January, 2, 3, 4, 5, 0, time.UTC)
+	mTime := time.Date(2001, time.February, 3, 4, 5, 6, 0, time.UTC)
+	assert.NilError(t, root.Chtimes("file", aTime, mTime))
+
+	fi, err := root.Stat("file")
+	assert.NilError(t, err)
+
+	data, ok := fi.Sys().(*syscall.Win32FileAttributeData)
+	assert.Assert(t, ok)
+
+	var (
+		creationTime     = time.Unix(0, data.CreationTime.Nanoseconds()).UTC()
+		accessTime       = time.Unix(0, data.LastAccessTime.Nanoseconds()).UTC()
+		modificationTime = time.Unix(0, data.LastWriteTime.Nanoseconds()).UTC()
+	)
+
+	assert.Equal(t, creationTime, mTime)
+	assert.Equal(t, accessTime, aTime)
+	assert.Equal(t, modificationTime, mTime)
 }
