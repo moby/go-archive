@@ -33,7 +33,7 @@ func timeToTimespec(time time.Time) unix.Timespec {
 	return unix.NsecToTimespec(time.UnixNano())
 }
 
-func lchtimes(root *os.Root, name string, atime, mtime time.Time) error {
+func lchtimes(root *os.Root, name string, atime, mtime time.Time) error { //nolint:unused
 	dir, base := path.Split(filepath.ToSlash(name))
 	if base == "" {
 		return &os.PathError{Op: "lchtimes", Path: name, Err: syscall.EINVAL}

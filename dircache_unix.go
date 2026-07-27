@@ -65,10 +65,12 @@ func (dc *dirCache) openFile(root *os.Root, path string, flag int, perm os.FileM
 	if err != nil {
 		return nil, err
 	}
+	// #nosec G115 -- ignore integer overflow conversion for parent.Fd
 	fd, err := unix.Openat(int(d.Fd()), filepath.Base(path), flag|syscall.O_CLOEXEC, uint32(perm))
 	if err != nil {
 		return nil, &os.PathError{Op: "openat", Path: path, Err: err}
 	}
+	// #nosec G115 -- ignore integer overflow conversion for parent.Fd
 	return os.NewFile(uintptr(fd), path), nil
 }
 
@@ -81,6 +83,7 @@ func (dc *dirCache) isExistingDir(root *os.Root, path string) (bool, error) {
 		return false, err
 	}
 	var stat unix.Stat_t
+	// #nosec G115 -- ignore integer overflow conversion for parent.Fd
 	if err := unix.Fstatat(int(d.Fd()), filepath.Base(path), &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		// Any stat error is treated as "not an existing directory"; the
 		// subsequent mkdir call will produce a real error if needed.
@@ -95,6 +98,7 @@ func (dc *dirCache) mkdir(root *os.Root, path string, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
+	// #nosec G115 -- ignore integer overflow conversion for parent.Fd
 	if err := unix.Mkdirat(int(d.Fd()), filepath.Base(path), uint32(perm)); err != nil {
 		return &os.PathError{Op: "mkdirat", Path: path, Err: err}
 	}
@@ -107,6 +111,7 @@ func (dc *dirCache) lchown(root *os.Root, path string, uid, gid int) error {
 	if err != nil {
 		return err
 	}
+	// #nosec G115 -- ignore integer overflow conversion for parent.Fd
 	if err := unix.Fchownat(int(d.Fd()), filepath.Base(path), uid, gid, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		return &os.PathError{Op: "fchownat", Path: path, Err: err}
 	}
@@ -120,6 +125,7 @@ func (dc *dirCache) chmod(root *os.Root, path string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
+	// #nosec G115 -- ignore integer overflow conversion for parent.Fd
 	if err := unix.Fchmodat(int(d.Fd()), filepath.Base(path), fileModeToPerm(mode), 0); err != nil {
 		return &os.PathError{Op: "fchmodat", Path: path, Err: err}
 	}
@@ -134,6 +140,7 @@ func (dc *dirCache) chtimes(root *os.Root, path string, atime, mtime time.Time) 
 		return err
 	}
 	utimes := [2]unix.Timespec{timeToTimespec(atime), timeToTimespec(mtime)}
+	// #nosec G115 -- ignore integer overflow conversion for parent.Fd
 	if err := unix.UtimesNanoAt(int(d.Fd()), filepath.Base(path), utimes[0:], 0); err != nil {
 		return &os.PathError{Op: "utimensat", Path: path, Err: err}
 	}
@@ -148,6 +155,7 @@ func (dc *dirCache) lchtimes(root *os.Root, path string, atime, mtime time.Time)
 		return err
 	}
 	utimes := [2]unix.Timespec{timeToTimespec(atime), timeToTimespec(mtime)}
+	// #nosec G115 -- ignore integer overflow conversion for parent.Fd
 	if err := unix.UtimesNanoAt(int(d.Fd()), filepath.Base(path), utimes[0:], unix.AT_SYMLINK_NOFOLLOW); err != nil && err != unix.ENOSYS {
 		return &os.PathError{Op: "utimensat", Path: path, Err: err}
 	}

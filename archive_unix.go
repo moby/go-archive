@@ -113,7 +113,7 @@ func handleLChmod(dc *dirCache, root *os.Root, dstPath string, hdr *tar.Header, 
 // chmodNoSymlink applies mode to a non-symlink entry.
 //
 // Callers must have already excluded symlink entries.
-func chmodNoSymlink(root *os.Root, name string, mode os.FileMode) error {
+func chmodNoSymlink(root *os.Root, name string, mode os.FileMode) error { //nolint:unused
 	parent, err := root.OpenFile(filepath.Dir(name), os.O_RDONLY, 0)
 	if err != nil {
 		return err
