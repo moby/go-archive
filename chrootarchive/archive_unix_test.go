@@ -8,7 +8,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -137,7 +136,7 @@ func TestTarWithMaliciousSymlinks(t *testing.T) {
 	maxBytes := len(hostFileData)
 
 	for _, tc := range cases {
-		t.Run(path.Join(tc.p+"_"+strings.Join(tc.includes, "_")), func(t *testing.T) {
+		t.Run(tc.p+"_"+strings.Join(tc.includes, "_"), func(t *testing.T) {
 			// Here if we use archive.TarWithOptions directly or change the "root" parameter
 			// to be the same as "safe", data from the host will be leaked into the archive
 			var opts *archive.TarOptions

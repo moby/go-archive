@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -84,9 +83,9 @@ func createSampleDir(t *testing.T, root string) {
 		{filetype: Regular, path: "dir4/file3-2", contents: "file4-2\n", permissions: 0o666},
 		{filetype: Symlink, path: "symlink1", contents: "target1", permissions: 0o666},
 		{filetype: Symlink, path: "symlink2", contents: "target2", permissions: 0o666},
-		{filetype: Symlink, path: "symlink3", contents: root + "/file1", permissions: 0o666},
-		{filetype: Symlink, path: "symlink4", contents: root + "/symlink3", permissions: 0o666},
-		{filetype: Symlink, path: "dirSymlink", contents: root + "/dir1", permissions: 0o740},
+		{filetype: Symlink, path: "symlink3", contents: filepath.Join(root, "file1"), permissions: 0o666},
+		{filetype: Symlink, path: "symlink4", contents: filepath.Join(root, "symlink3"), permissions: 0o666},
+		{filetype: Symlink, path: "dirSymlink", contents: filepath.Join(root, "dir1"), permissions: 0o740},
 	}
 	provisionSampleDir(t, root, files)
 }
@@ -94,7 +93,7 @@ func createSampleDir(t *testing.T, root string) {
 func provisionSampleDir(t *testing.T, root string, files []FileData) {
 	now := time.Now()
 	for _, info := range files {
-		p := path.Join(root, info.path)
+		p := filepath.Join(root, filepath.FromSlash(info.path))
 		switch info.filetype {
 		case Dir:
 			err := os.MkdirAll(p, info.permissions)
@@ -151,7 +150,7 @@ func TestChangesWithChanges(t *testing.T) {
 	assert.NilError(t, err)
 	defer os.RemoveAll(layer)
 	createSampleDir(t, layer)
-	assert.NilError(t, os.MkdirAll(path.Join(layer, "dir1/subfolder"), 0o740))
+	assert.NilError(t, os.MkdirAll(filepath.Join(layer, "dir1", "subfolder"), 0o740))
 
 	// Mock the RW layer
 	rwLayer, err := os.MkdirTemp("", "docker-changes-test")
@@ -159,16 +158,16 @@ func TestChangesWithChanges(t *testing.T) {
 	defer os.RemoveAll(rwLayer)
 
 	// Create a folder in RW layer
-	dir1 := path.Join(rwLayer, "dir1")
+	dir1 := filepath.Join(rwLayer, "dir1")
 	assert.NilError(t, os.MkdirAll(dir1, 0o740))
-	deletedFile := path.Join(dir1, ".wh.file1-2")
+	deletedFile := filepath.Join(dir1, ".wh.file1-2")
 	assert.NilError(t, os.WriteFile(deletedFile, []byte{}, 0o600))
-	modifiedFile := path.Join(dir1, "file1-1")
+	modifiedFile := filepath.Join(dir1, "file1-1")
 	assert.NilError(t, os.WriteFile(modifiedFile, []byte{0x00}, 0o1444))
 	// Let's add a subfolder for a newFile
-	subfolder := path.Join(dir1, "subfolder")
+	subfolder := filepath.Join(dir1, "subfolder")
 	assert.NilError(t, os.MkdirAll(subfolder, 0o740))
-	newFile := path.Join(subfolder, "newFile")
+	newFile := filepath.Join(subfolder, "newFile")
 	assert.NilError(t, os.WriteFile(newFile, []byte{}, 0o740))
 
 	changes, err := Changes([]string{layer}, rwLayer)
@@ -194,10 +193,10 @@ func TestChangesWithChangesGH13590(t *testing.T) {
 	assert.NilError(t, err)
 	defer os.RemoveAll(baseLayer)
 
-	dir3 := path.Join(baseLayer, "dir1/dir2/dir3")
+	dir3 := filepath.Join(baseLayer, "dir1", "dir2", "dir3")
 	assert.NilError(t, os.MkdirAll(dir3, 0o740))
 
-	file := path.Join(dir3, "file.txt")
+	file := filepath.Join(dir3, "file.txt")
 	assert.NilError(t, os.WriteFile(file, []byte("hello"), 0o666))
 
 	layer, err := os.MkdirTemp("", "docker-changes-test2.")
@@ -205,20 +204,20 @@ func TestChangesWithChangesGH13590(t *testing.T) {
 	defer os.RemoveAll(layer)
 
 	// Test creating a new file
-	if err := copyDir(baseLayer+"/dir1", layer+"/"); err != nil {
+	if err := copyDir(filepath.Join(baseLayer, "dir1"), layer); err != nil {
 		t.Fatalf("Cmd failed: %q", err)
 	}
 
-	assert.NilError(t, os.Remove(path.Join(layer, "dir1/dir2/dir3/file.txt")))
-	file = path.Join(layer, "dir1/dir2/dir3/file1.txt")
+	assert.NilError(t, os.Remove(filepath.Join(layer, "dir1", "dir2", "dir3", "file.txt")))
+	file = filepath.Join(layer, "dir1", "dir2", "dir3", "file1.txt")
 	assert.NilError(t, os.WriteFile(file, []byte("bye"), 0o666))
 
 	changes, err := Changes([]string{baseLayer}, layer)
 	assert.NilError(t, err)
 
 	expectedChanges := []Change{
-		{Path: "/dir1/dir2/dir3", Kind: ChangeModify},
-		{Path: "/dir1/dir2/dir3/file1.txt", Kind: ChangeAdd},
+		{Path: filepath.FromSlash("/dir1/dir2/dir3"), Kind: ChangeModify},
+		{Path: filepath.FromSlash("/dir1/dir2/dir3/file1.txt"), Kind: ChangeAdd},
 	}
 	checkChanges(expectedChanges, changes, t)
 
@@ -227,18 +226,18 @@ func TestChangesWithChangesGH13590(t *testing.T) {
 	assert.NilError(t, err)
 	defer os.RemoveAll(layer)
 
-	if err := copyDir(baseLayer+"/dir1", layer+"/"); err != nil {
+	if err := copyDir(filepath.Join(baseLayer, "dir1"), layer); err != nil {
 		t.Fatalf("Cmd failed: %q", err)
 	}
 
-	file = path.Join(layer, "dir1/dir2/dir3/file.txt")
+	file = filepath.Join(layer, "dir1", "dir2", "dir3", "file.txt")
 	assert.NilError(t, os.WriteFile(file, []byte("bye"), 0o666))
 
 	changes, err = Changes([]string{baseLayer}, layer)
 	assert.NilError(t, err)
 
 	expectedChanges = []Change{
-		{Path: "/dir1/dir2/dir3/file.txt", Kind: ChangeModify},
+		{Path: filepath.FromSlash("/dir1/dir2/dir3/file.txt"), Kind: ChangeModify},
 	}
 	checkChanges(expectedChanges, changes, t)
 }
@@ -269,64 +268,64 @@ func TestChangesDirsEmpty(t *testing.T) {
 
 func mutateSampleDir(t *testing.T, root string) {
 	// Remove a regular file
-	err := os.RemoveAll(path.Join(root, "file1"))
+	err := os.RemoveAll(filepath.Join(root, "file1"))
 	assert.NilError(t, err)
 
 	// Remove a directory
-	err = os.RemoveAll(path.Join(root, "dir1"))
+	err = os.RemoveAll(filepath.Join(root, "dir1"))
 	assert.NilError(t, err)
 
 	// Remove a symlink
-	err = os.RemoveAll(path.Join(root, "symlink1"))
+	err = os.RemoveAll(filepath.Join(root, "symlink1"))
 	assert.NilError(t, err)
 
 	// Rewrite a file
-	err = os.WriteFile(path.Join(root, "file2"), []byte("fileNN\n"), 0o777)
+	err = os.WriteFile(filepath.Join(root, "file2"), []byte("fileNN\n"), 0o777)
 	assert.NilError(t, err)
 
 	// Replace a file
-	err = os.RemoveAll(path.Join(root, "file3"))
+	err = os.RemoveAll(filepath.Join(root, "file3"))
 	assert.NilError(t, err)
-	err = os.WriteFile(path.Join(root, "file3"), []byte("fileMM\n"), 0o404)
+	err = os.WriteFile(filepath.Join(root, "file3"), []byte("fileMM\n"), 0o404)
 	assert.NilError(t, err)
 
 	// Touch file
-	err = chtimes(path.Join(root, "file4"), time.Now().Add(time.Second), time.Now().Add(time.Second))
+	err = chtimes(filepath.Join(root, "file4"), time.Now().Add(time.Second), time.Now().Add(time.Second))
 	assert.NilError(t, err)
 
 	// Replace file with dir
-	err = os.RemoveAll(path.Join(root, "file5"))
+	err = os.RemoveAll(filepath.Join(root, "file5"))
 	assert.NilError(t, err)
-	err = os.MkdirAll(path.Join(root, "file5"), 0o666)
+	err = os.MkdirAll(filepath.Join(root, "file5"), 0o666)
 	assert.NilError(t, err)
 
 	// Create new file
-	err = os.WriteFile(path.Join(root, "filenew"), []byte("filenew\n"), 0o777)
+	err = os.WriteFile(filepath.Join(root, "filenew"), []byte("filenew\n"), 0o777)
 	assert.NilError(t, err)
 
 	// Create new dir
-	err = os.MkdirAll(path.Join(root, "dirnew"), 0o766)
+	err = os.MkdirAll(filepath.Join(root, "dirnew"), 0o766)
 	assert.NilError(t, err)
 
 	// Create a new symlink
-	err = os.Symlink("targetnew", path.Join(root, "symlinknew"))
+	err = os.Symlink("targetnew", filepath.Join(root, "symlinknew"))
 	assert.NilError(t, err)
 
 	// Change a symlink
-	err = os.RemoveAll(path.Join(root, "symlink2"))
+	err = os.RemoveAll(filepath.Join(root, "symlink2"))
 	assert.NilError(t, err)
 
-	err = os.Symlink("target2change", path.Join(root, "symlink2"))
+	err = os.Symlink("target2change", filepath.Join(root, "symlink2"))
 	assert.NilError(t, err)
 
 	// Replace dir with file
-	err = os.RemoveAll(path.Join(root, "dir2"))
+	err = os.RemoveAll(filepath.Join(root, "dir2"))
 	assert.NilError(t, err)
-	err = os.WriteFile(path.Join(root, "dir2"), []byte("dir2\n"), 0o777)
+	err = os.WriteFile(filepath.Join(root, "dir2"), []byte("dir2\n"), 0o777)
 	assert.NilError(t, err)
 
 	// Touch dir
-	err = chtimes(path.Join(root, "dir3"), time.Now().Add(time.Second), time.Now().Add(time.Second))
+	err = chtimes(filepath.Join(root, "dir3"), time.Now().Add(time.Second), time.Now().Add(time.Second))
 	assert.NilError(t, err)
 }
 
@@ -493,10 +492,10 @@ func TestChangesSize(t *testing.T) {
 	parentPath, err := os.MkdirTemp("", "docker-changes-test")
 	assert.NilError(t, err)
 	defer os.RemoveAll(parentPath)
-	addition := path.Join(parentPath, "addition")
+	addition := filepath.Join(parentPath, "addition")
 	err = os.WriteFile(addition, []byte{0x01, 0x01, 0x01}, 0o744)
 	assert.NilError(t, err)
-	modification := path.Join(parentPath, "modification")
+	modification := filepath.Join(parentPath, "modification")
 	err = os.WriteFile(modification, []byte{0x01, 0x01, 0x01}, 0o744)
 	assert.NilError(t, err)
 
