@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/sys/windows"
 	"gotest.tools/v3/assert"
 	is "gotest.tools/v3/assert/cmp"
 )
@@ -161,7 +160,7 @@ func TestChtimesRejectsSymlink(t *testing.T) {
 	// While it may not be a breakout (resolved location could be within rootFs),
 	// we encountered a symlink for a path that we expected not to be.
 	assert.Check(t, is.ErrorType(err, &breakoutErr{}))
-	assert.Check(t, is.ErrorIs(err, windows.STATUS_REPARSE_POINT_ENCOUNTERED))
+	assert.Check(t, is.ErrorIs(err, syscall.ELOOP))
 
 	// Verify that chtimes did not follow the symlink and modify its target.
 	after, err := root.Stat("target")
