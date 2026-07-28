@@ -70,7 +70,15 @@ func createSampleDir(t *testing.T, root string) {
 		{filetype: Regular, path: "file6", contents: "file6\n", permissions: 0o600},
 		{filetype: Regular, path: "file7", contents: "file7\n", permissions: 0o600},
 		{filetype: Dir, path: "dir1", contents: "", permissions: 0o740},
-		{filetype: Regular, path: "dir1/file1-1", contents: "file1-1\n", permissions: 0o1444},
+		// This entry was originally added as mode 0o1444 in
+		// https://github.com/shykes/docker/commit/f7238f94e8b5b31e78360c342676ca84b5984806
+		// https://github.com/shykes/docker/pull/30
+		//
+		// Go's os.FileMode does not encode the sticky bit as 0o1000. Historically,
+		// os.WriteFile silently discarded that bit and created the file with mode
+		// 0o444, whereas os.Root.WriteFile rejects the unsupported FileMode bit.
+		// {filetype: Regular, path: "dir1/file1-1", contents: "file1-1\n", permissions: 0o1444},
+		{filetype: Regular, path: "dir1/file1-1", contents: "file1-1\n", permissions: 0o444},
 		{filetype: Regular, path: "dir1/file1-2", contents: "file1-2\n", permissions: 0o666},
 		{filetype: Dir, path: "dir2", contents: "", permissions: 0o700},
 		{filetype: Regular, path: "dir2/file2-1", contents: "file2-1\n", permissions: 0o666},
