@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
+	"path/filepath"
 	"sort"
 	"testing"
 
@@ -25,20 +25,20 @@ func TestHardLinkOrder(t *testing.T) {
 	}
 	for _, name := range names {
 		func() {
-			err := os.WriteFile(path.Join(src, name), msg, 0o666)
+			err := os.WriteFile(filepath.Join(src, name), msg, 0o666)
 			if err != nil {
 				t.Fatal(err)
 			}
 		}()
 	}
 	// Create dest, with changes that includes hardlinks
-	dest := path.Join(tmpDir, "docker-hardlink-test-dest")
+	dest := filepath.Join(tmpDir, "docker-hardlink-test-dest")
 	if err := copyDir(src, dest); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range names {
 		for i := range 5 {
-			if err := os.Link(path.Join(dest, name), path.Join(dest, fmt.Sprintf("%s.link%d", name, i))); err != nil {
+			if err := os.Link(filepath.Join(dest, name), filepath.Join(dest, fmt.Sprintf("%s.link%d", name, i))); err != nil {
 				t.Fatal(err)
 			}
 		}
