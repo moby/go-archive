@@ -3,9 +3,10 @@
 package windows
 
 import (
-	"internal/syscall/windows/sysdll"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 var _ unsafe.Pointer
@@ -37,15 +38,15 @@ func errnoErr(e syscall.Errno) error {
 }
 
 var (
-	modadvapi32         = syscall.NewLazyDLL(sysdll.Add("advapi32.dll"))
-	modbcryptprimitives = syscall.NewLazyDLL(sysdll.Add("bcryptprimitives.dll"))
-	modiphlpapi         = syscall.NewLazyDLL(sysdll.Add("iphlpapi.dll"))
-	modkernel32         = syscall.NewLazyDLL(sysdll.Add("kernel32.dll"))
-	modnetapi32         = syscall.NewLazyDLL(sysdll.Add("netapi32.dll"))
-	modntdll            = syscall.NewLazyDLL(sysdll.Add("ntdll.dll"))
-	modpsapi            = syscall.NewLazyDLL(sysdll.Add("psapi.dll"))
-	moduserenv          = syscall.NewLazyDLL(sysdll.Add("userenv.dll"))
-	modws2_32           = syscall.NewLazyDLL(sysdll.Add("ws2_32.dll"))
+	modadvapi32         = windows.NewLazySystemDLL("advapi32.dll")
+	modbcryptprimitives = windows.NewLazySystemDLL("bcryptprimitives.dll")
+	modiphlpapi         = windows.NewLazySystemDLL("iphlpapi.dll")
+	modkernel32         = windows.NewLazySystemDLL("kernel32.dll")
+	modnetapi32         = windows.NewLazySystemDLL("netapi32.dll")
+	modntdll            = windows.NewLazySystemDLL("ntdll.dll")
+	modpsapi            = windows.NewLazySystemDLL("psapi.dll")
+	moduserenv          = windows.NewLazySystemDLL("userenv.dll")
+	modws2_32           = windows.NewLazySystemDLL("ws2_32.dll")
 
 	procAdjustTokenPrivileges             = modadvapi32.NewProc("AdjustTokenPrivileges")
 	procDuplicateTokenEx                  = modadvapi32.NewProc("DuplicateTokenEx")

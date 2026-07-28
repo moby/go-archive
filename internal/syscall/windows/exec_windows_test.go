@@ -8,13 +8,13 @@ package windows_test
 
 import (
 	"fmt"
-	"internal/syscall/windows"
-	"internal/testenv"
 	"os"
 	"os/exec"
 	"syscall"
 	"testing"
 	"unsafe"
+
+	"github.com/moby/go-archive/internal/syscall/windows"
 )
 
 func TestRunAtLowIntegrity(t *testing.T) {
@@ -30,7 +30,7 @@ func TestRunAtLowIntegrity(t *testing.T) {
 		return
 	}
 
-	cmd := exec.Command(testenv.Executable(t), "-test.run=^TestRunAtLowIntegrity$", "--")
+	cmd := exec.Command(testenvExecutable(t), "-test.run=^TestRunAtLowIntegrity$", "--")
 	cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
 
 	token, err := getIntegrityLevelToken(sidWilLow)

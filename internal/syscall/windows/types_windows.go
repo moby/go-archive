@@ -5,9 +5,10 @@
 package windows
 
 import (
-	"internal/runtime/syscall/windows"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 // Socket related.
@@ -286,7 +287,8 @@ const VER_NT_WORKSTATION = 0x0000001
 
 type MemoryBasicInformation = windows.MemoryBasicInformation
 
-type Context = windows.Context
+// Context [internal/runtime/syscall/windows.Context] is not used in go-archive.
+// type Context = windows.Context
 
 const FileFlagsMask = 0xFFF00000
 

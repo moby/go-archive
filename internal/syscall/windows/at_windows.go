@@ -5,7 +5,7 @@
 package windows
 
 import (
-	"internal/oserror"
+	"os"
 	"runtime"
 	"structs"
 	"syscall"
@@ -39,7 +39,7 @@ func Openat(dirfd syscall.Handle, name string, flag uint64, perm uint32) (_ sysc
 	// Map Win32 file flags to NT create options.
 	fileFlags := uint32(flag) & FileFlagsMask
 	if fileFlags&^ValidFileFlagsMask != 0 {
-		return syscall.InvalidHandle, oserror.ErrInvalid
+		return syscall.InvalidHandle, os.ErrInvalid
 	}
 	if fileFlags&O_FILE_FLAG_OVERLAPPED == 0 {
 		options |= FILE_SYNCHRONOUS_IO_NONALERT

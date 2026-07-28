@@ -6,9 +6,10 @@ package windows_test
 
 import (
 	"errors"
-	"internal/syscall/windows"
 	"syscall"
 	"testing"
+
+	"github.com/moby/go-archive/internal/syscall/windows"
 )
 
 func TestSupportUnixSocket(t *testing.T) {

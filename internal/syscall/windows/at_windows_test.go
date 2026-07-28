@@ -5,12 +5,13 @@
 package windows_test
 
 import (
-	"internal/syscall/windows"
 	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
 	"unsafe"
+
+	"github.com/moby/go-archive/internal/syscall/windows"
 )
 
 func TestOpen(t *testing.T) {
