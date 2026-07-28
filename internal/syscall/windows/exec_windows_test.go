@@ -18,6 +18,7 @@ import (
 )
 
 func TestRunAtLowIntegrity(t *testing.T) {
+	t.Skip("tested code is not used by go-archive")
 	if os.Getenv("GO_WANT_HELPER_PROCESS") == "1" {
 		wil, err := getProcessIntegrityLevel()
 		if err != nil {
