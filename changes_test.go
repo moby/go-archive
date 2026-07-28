@@ -70,7 +70,15 @@ func createSampleDir(t *testing.T, root string) {
 		{filetype: Regular, path: "file6", contents: "file6\n", permissions: 0o600},
 		{filetype: Regular, path: "file7", contents: "file7\n", permissions: 0o600},
 		{filetype: Dir, path: "dir1", contents: "", permissions: 0o740},
-		{filetype: Regular, path: "dir1/file1-1", contents: "file1-1\n", permissions: 0o1444},
+		// This entry was originally added as mode 0o1444 in
+		// https://github.com/shykes/docker/commit/f7238f94e8b5b31e78360c342676ca84b5984806
+		// https://github.com/shykes/docker/pull/30
+		//
+		// Go's os.FileMode does not encode the sticky bit as 0o1000. Historically,
+		// os.WriteFile silently discarded that bit and created the file with mode
+		// 0o444, whereas os.Root.WriteFile rejects the unsupported FileMode bit.
+		// {filetype: Regular, path: "dir1/file1-1", contents: "file1-1\n", permissions: 0o1444},
+		{filetype: Regular, path: "dir1/file1-1", contents: "file1-1\n", permissions: 0o444},
 		{filetype: Regular, path: "dir1/file1-2", contents: "file1-2\n", permissions: 0o666},
 		{filetype: Dir, path: "dir2", contents: "", permissions: 0o700},
 		{filetype: Regular, path: "dir2/file2-1", contents: "file2-1\n", permissions: 0o666},
@@ -90,25 +98,31 @@ func createSampleDir(t *testing.T, root string) {
 	provisionSampleDir(t, root, files)
 }
 
-func provisionSampleDir(t *testing.T, root string, files []FileData) {
+func provisionSampleDir(t *testing.T, rootPath string, files []FileData) {
+	t.Helper()
+
+	root, err := os.OpenRoot(rootPath)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = root.Close() })
+
 	now := time.Now()
 	for _, info := range files {
-		p := filepath.Join(root, filepath.FromSlash(info.path))
+		name := filepath.FromSlash(info.path)
 		switch info.filetype {
 		case Dir:
-			err := os.MkdirAll(p, info.permissions)
+			err := root.MkdirAll(name, info.permissions)
 			assert.NilError(t, err)
 		case Regular:
-			err := os.WriteFile(p, []byte(info.contents), info.permissions)
+			err := root.WriteFile(name, []byte(info.contents), info.permissions)
 			assert.NilError(t, err)
 		case Symlink:
-			err := os.Symlink(info.contents, p)
+			err := root.Symlink(info.contents, name)
 			assert.NilError(t, err)
 		}
 
 		if info.filetype != Symlink {
 			// Set a consistent ctime, atime for all files and dirs
-			err := chtimes(p, now, now)
+			err := chtimes(filepath.Join(rootPath, name), now, now)
 			assert.NilError(t, err)
 		}
 	}
@@ -266,66 +280,72 @@ func TestChangesDirsEmpty(t *testing.T) {
 	assert.NilError(t, os.RemoveAll(dst))
 }
 
-func mutateSampleDir(t *testing.T, root string) {
+func mutateSampleDir(t *testing.T, rootPath string) {
+	t.Helper()
+
+	root, err := os.OpenRoot(rootPath)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = root.Close() })
+
 	// Remove a regular file
-	err := os.RemoveAll(filepath.Join(root, "file1"))
+	err = root.RemoveAll("file1")
 	assert.NilError(t, err)
 
 	// Remove a directory
-	err = os.RemoveAll(filepath.Join(root, "dir1"))
+	err = root.RemoveAll("dir1")
 	assert.NilError(t, err)
 
 	// Remove a symlink
-	err = os.RemoveAll(filepath.Join(root, "symlink1"))
+	err = root.RemoveAll("symlink1")
 	assert.NilError(t, err)
 
 	// Rewrite a file
-	err = os.WriteFile(filepath.Join(root, "file2"), []byte("fileNN\n"), 0o777)
+	err = root.WriteFile("file2", []byte("fileNN\n"), 0o777)
 	assert.NilError(t, err)
 
 	// Replace a file
-	err = os.RemoveAll(filepath.Join(root, "file3"))
+	err = root.RemoveAll("file3")
 	assert.NilError(t, err)
-	err = os.WriteFile(filepath.Join(root, "file3"), []byte("fileMM\n"), 0o404)
+	err = root.WriteFile("file3", []byte("fileMM\n"), 0o404)
 	assert.NilError(t, err)
 
 	// Touch file
-	err = chtimes(filepath.Join(root, "file4"), time.Now().Add(time.Second), time.Now().Add(time.Second))
+	err = chtimes(filepath.Join(rootPath, "file4"), time.Now().Add(time.Second), time.Now().Add(time.Second))
 	assert.NilError(t, err)
 
 	// Replace file with dir
-	err = os.RemoveAll(filepath.Join(root, "file5"))
+	err = root.RemoveAll("file5")
 	assert.NilError(t, err)
-	err = os.MkdirAll(filepath.Join(root, "file5"), 0o666)
+	err = root.Mkdir("file5", 0o666)
 	assert.NilError(t, err)
 
 	// Create new file
-	err = os.WriteFile(filepath.Join(root, "filenew"), []byte("filenew\n"), 0o777)
+	err = root.WriteFile("filenew", []byte("filenew\n"), 0o777)
 	assert.NilError(t, err)
 
 	// Create new dir
-	err = os.MkdirAll(filepath.Join(root, "dirnew"), 0o766)
+	err = root.MkdirAll("dirnew", 0o766)
 	assert.NilError(t, err)
 
 	// Create a new symlink
-	err = os.Symlink("targetnew", filepath.Join(root, "symlinknew"))
+	err = root.Symlink("targetnew", "symlinknew")
 	assert.NilError(t, err)
 
 	// Change a symlink
-	err = os.RemoveAll(filepath.Join(root, "symlink2"))
+	err = root.RemoveAll("symlink2")
 	assert.NilError(t, err)
 
-	err = os.Symlink("target2change", filepath.Join(root, "symlink2"))
+	err = root.Symlink("target2change", "symlink2")
 	assert.NilError(t, err)
 
 	// Replace dir with file
-	err = os.RemoveAll(filepath.Join(root, "dir2"))
+	err = root.RemoveAll("dir2")
 	assert.NilError(t, err)
-	err = os.WriteFile(filepath.Join(root, "dir2"), []byte("dir2\n"), 0o777)
+	err = root.WriteFile("dir2", []byte("dir2\n"), 0o777)
 	assert.NilError(t, err)
 
 	// Touch dir
-	err = chtimes(filepath.Join(root, "dir3"), time.Now().Add(time.Second), time.Now().Add(time.Second))
+	err = chtimes(filepath.Join(rootPath, "dir3"), time.Now().Add(time.Second), time.Now().Add(time.Second))
 	assert.NilError(t, err)
 }
 
