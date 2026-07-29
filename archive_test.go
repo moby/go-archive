@@ -77,6 +77,14 @@ func createTarFromFiles(t *testing.T, tarPath string, files ...string) {
 	assert.NilError(t, f.Close())
 }
 
+func TestBreakoutErrorUnwrap(t *testing.T) {
+	sentinel := errors.New("sentinel")
+	err := breakoutError(sentinel)
+
+	assert.Check(t, is.ErrorType(err, &breakoutErr{}))
+	assert.Check(t, is.ErrorIs(err, sentinel))
+}
+
 func TestIsArchivePathDir(t *testing.T) {
 	tmp := t.TempDir()
 	assert.NilError(t, os.Mkdir(filepath.Join(tmp, "archivedir"), 0o755))
