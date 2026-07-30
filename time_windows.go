@@ -1,6 +1,7 @@
 package archive
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"time"
@@ -12,6 +13,10 @@ import (
 // chtimes changes the access and modification time of a file at the given
 // path relative to root.
 //
+// Symlink entries are handled separately through lchtimes. The final path
+// component is expected not to be a reparse point; if one is encountered,
+// chtimes returns an error.
+//
 // Callers must use boundTime to ensure timestamps are within the range
 // supported by os.Chtimes.
 func chtimes(root *os.Root, name string, atime, mtime time.Time) error {
@@ -21,7 +26,12 @@ func chtimes(root *os.Root, name string, atime, mtime time.Time) error {
 	}
 	defer parent.Close()
 
-	return chtimesAt(parent, filepath.Base(name), atime, mtime, false)
+	// Symlink entries are handled by lchtimes. The destination for all
+	// chtimes callers is therefore expected not to be a reparse point.
+	//
+	// Do not follow the final component: if it was concurrently replaced
+	// with a reparse point, fail instead of updating its target.
+	return chtimesAt(parent, filepath.Base(name), atime, mtime, true)
 }
 
 func lchtimes(root *os.Root, name string, atime time.Time, mtime time.Time) error {
@@ -31,6 +41,11 @@ func lchtimes(root *os.Root, name string, atime time.Time, mtime time.Time) erro
 func chtimesAt(parent *os.File, name string, atime, mtime time.Time, noFollow bool) error {
 	h, err := openForWriteAttributesAt(windows.Handle(parent.Fd()), name, noFollow)
 	if err != nil {
+		if noFollow && errors.Is(err, windows.STATUS_REPARSE_POINT_ENCOUNTERED) {
+			// Encountering a reparse point when noFollow is requested is unexpected.
+			// Treat it as a potential breakout to fail extraction safely.
+			return breakoutError(err)
+		}
 		return err
 	}
 	defer func() { _ = windows.Close(h) }()
