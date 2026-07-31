@@ -510,3 +510,207 @@ func TestHandleTarTypeBlockCharFifoDeviceRange(t *testing.T) {
 		})
 	}
 }
+
+// TestUntarThroughAbsoluteSymlink verifies that archive extraction follows a
+// pre-existing absolute symlink relative to the extraction root, including
+// when the symlink target or directories following it do not yet exist.
+//
+// Regression test for https://github.com/moby/moby/issues/53258
+func TestUntarThroughAbsoluteSymlink(t *testing.T) {
+	unpackers := []struct {
+		name   string
+		unpack func(dest string, r io.Reader) error
+	}{
+		{
+			name: "Untar",
+			unpack: func(dest string, r io.Reader) error {
+				return Untar(r, dest, &TarOptions{NoLchown: true})
+			},
+		},
+		{
+			name: "UnpackLayer",
+			unpack: func(dest string, r io.Reader) error {
+				_, err := UnpackLayer(dest, r, &TarOptions{NoLchown: true})
+				return err
+			},
+		},
+	}
+
+	for _, unpacker := range unpackers {
+		t.Run(unpacker.name, func(t *testing.T) {
+			for _, tc := range []struct {
+				name         string
+				createTarget bool
+			}{
+				{
+					name:         "existing target",
+					createTarget: true,
+				},
+				{
+					name:         "missing target",
+					createTarget: false,
+				},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					const (
+						name    = "var/run/existing/non-existing/file"
+						content = "content"
+					)
+
+					dest := t.TempDir()
+					assert.NilError(t, os.Mkdir(filepath.Join(dest, "var"), 0o755))
+					if tc.createTarget {
+						assert.NilError(t, os.MkdirAll(
+							filepath.Join(dest, "run", "existing"),
+							0o755,
+						))
+					}
+					assert.NilError(t, os.Symlink(
+						"/run",
+						filepath.Join(dest, "var", "run"),
+					))
+
+					buf := &bytes.Buffer{}
+					tw := tar.NewWriter(buf)
+					assert.NilError(t, tw.WriteHeader(&tar.Header{
+						Name:     name,
+						Typeflag: tar.TypeReg,
+						Mode:     0o644,
+						Size:     int64(len(content)),
+					}))
+					_, err := io.WriteString(tw, content)
+					assert.NilError(t, err)
+					assert.NilError(t, tw.Close())
+
+					assert.NilError(t, unpacker.unpack(dest, buf))
+
+					actual, err := os.ReadFile(filepath.Join(
+						dest, "run", "existing", "non-existing", "file",
+					))
+					assert.NilError(t, err)
+					assert.DeepEqual(t, actual, []byte(content))
+				})
+			}
+		})
+	}
+}
+
+// A relative symlink must not escape the extraction root merely because path
+// resolution encounters an absolute symlink afterward.
+func TestUnpackRejectsRelativeEscapeBeforeAbsoluteSymlink(t *testing.T) {
+	buf := &bytes.Buffer{}
+	tw := tar.NewWriter(buf)
+	assert.NilError(t, tw.WriteHeader(&tar.Header{
+		Name:     "escape/absolute/file",
+		Typeflag: tar.TypeReg,
+		Mode:     0o644,
+	}))
+	assert.NilError(t, tw.Close())
+
+	unpackers := []struct {
+		name   string
+		unpack func(dest string, r io.Reader) error
+	}{
+		{
+			name: "Unpack",
+			unpack: func(dest string, r io.Reader) error {
+				return Unpack(r, dest, &TarOptions{NoLchown: true})
+			},
+		},
+		{
+			name: "UnpackLayer",
+			unpack: func(dest string, r io.Reader) error {
+				_, err := UnpackLayer(dest, r, &TarOptions{NoLchown: true})
+				return err
+			},
+		},
+	}
+
+	for _, unpacker := range unpackers {
+		t.Run(unpacker.name, func(t *testing.T) {
+			dest := t.TempDir()
+			assert.NilError(t, os.Mkdir(filepath.Join(dest, "target"), 0o755))
+			assert.NilError(t, os.Symlink("..", filepath.Join(dest, "escape")))
+			assert.NilError(t, os.Symlink(
+				"/target",
+				filepath.Join(dest, "absolute"),
+			))
+
+			err := unpacker.unpack(dest, bytes.NewReader(buf.Bytes()))
+			assert.Check(t, isPathEscapes(err), "expected path-escape error, got: %v", err)
+
+			_, err = os.Lstat(filepath.Join(dest, "target", "file"))
+			assert.Check(t, os.IsNotExist(err), "archive wrote through rejected path: %v", err)
+		})
+	}
+}
+
+// Absolute symlinks are common in container root filesystems and may come from
+// a lower layer. Later layers must resolve files and hardlink sources through
+// those symlinks relative to the extraction root, not the host root.
+func TestHardlinkSourceThroughAbsoluteSymlink(t *testing.T) {
+	const content = "content"
+
+	unpackers := []struct {
+		name   string
+		unpack func(io.Reader, string) error
+	}{
+		{
+			name: "Unpack",
+			unpack: func(r io.Reader, dest string) error {
+				return Unpack(r, dest, &TarOptions{NoLchown: true})
+			},
+		},
+		{
+			name: "UnpackLayer",
+			unpack: func(r io.Reader, dest string) error {
+				_, err := UnpackLayer(dest, r, &TarOptions{NoLchown: true})
+				return err
+			},
+		},
+	}
+
+	for _, tc := range unpackers {
+		t.Run(tc.name, func(t *testing.T) {
+			dest := t.TempDir()
+			assert.NilError(t, os.Mkdir(filepath.Join(dest, "var"), 0o755))
+			assert.NilError(t, os.Symlink("/run", filepath.Join(dest, "var", "run")))
+
+			buf := &bytes.Buffer{}
+			tw := tar.NewWriter(buf)
+			assert.NilError(t, tw.WriteHeader(&tar.Header{
+				Name:     "var/run/source",
+				Typeflag: tar.TypeReg,
+				Mode:     0o644,
+				Size:     int64(len(content)),
+			}))
+			_, err := io.WriteString(tw, content)
+			assert.NilError(t, err)
+			assert.NilError(t, tw.WriteHeader(&tar.Header{
+				Name:     "var/run/link",
+				Typeflag: tar.TypeLink,
+				Linkname: "var/run/source",
+				Mode:     0o644,
+			}))
+			assert.NilError(t, tw.Close())
+
+			assert.NilError(t, tc.unpack(buf, dest))
+
+			source := filepath.Join(dest, "run", "source")
+			link := filepath.Join(dest, "run", "link")
+			actual, err := os.ReadFile(link)
+			assert.NilError(t, err)
+			assert.DeepEqual(t, actual, []byte(content))
+
+			sourceInode, err := getInode(source)
+			assert.NilError(t, err)
+			linkInode, err := getInode(link)
+			assert.NilError(t, err)
+			assert.Equal(t, sourceInode, linkInode)
+
+			linkCount, err := getNlink(source)
+			assert.NilError(t, err)
+			assert.Equal(t, linkCount, uint64(2))
+		})
+	}
+}
