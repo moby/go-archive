@@ -518,6 +518,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 	// but for os.Foo() calls we need the mode converted to os.FileMode,
 	// so use hdrInfo.Mode() (they differ for e.g. setuid bits)
 	hdrInfo := hdr.FileInfo()
+	var hardlinkSource string
 
 	switch hdr.Typeflag {
 	case tar.TypeDir:
@@ -574,7 +575,13 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		if linkname == "." || !filepath.IsLocal(linkname) {
 			return breakoutError(fmt.Errorf("invalid hardlink target %q", hdr.Linkname))
 		}
-		if err := root.Link(filepath.FromSlash(linkname), dstPath); err != nil {
+		hardlinkSource = filepath.FromSlash(linkname)
+		var err error
+		hardlinkSource, err = resolveArchivePath(root, hardlinkSource)
+		if err != nil {
+			return err
+		}
+		if err := root.Link(hardlinkSource, dstPath); err != nil {
 			return err
 		}
 
@@ -665,7 +672,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		}
 	case tar.TypeLink:
 		// Follow the hardlink only when its target is not itself a symlink.
-		fi, err := root.Lstat(filepath.FromSlash(path.Clean(hdr.Linkname)))
+		fi, err := root.Lstat(hardlinkSource)
 		if err == nil && fi.Mode()&os.ModeSymlink == 0 {
 			if err := chtimes(root, dstPath, aTime, mTime); err != nil {
 				return err
