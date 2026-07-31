@@ -24,31 +24,47 @@ import (
 
 var errTooManyLinks = errors.New("too many links")
 
+type fsRootPathResult struct {
+	path                         string
+	followedAbsoluteLink         bool
+	relativeEscapeBeforeAbsolute bool
+}
+
 // fsRootPath joins a path with a root, evaluating and bounding any
 // symlink to the root directory.
 func fsRootPath(root, path string) (string, error) {
+	result, err := resolveFSRootPath(root, path)
+	if err != nil {
+		return "", err
+	}
+	return result.path, nil
+}
+
+func resolveFSRootPath(root, path string) (fsRootPathResult, error) {
+	result := fsRootPathResult{path: root}
 	if path == "" {
-		return root, nil
+		return result, nil
 	}
 	var linksWalked int // to protect against cycles
 	for {
 		i := linksWalked
-		newpath, err := walkLinks(root, path, &linksWalked)
+		newpath, err := walkLinks(root, path, &linksWalked, &result)
 		if err != nil {
-			return "", err
+			return fsRootPathResult{}, err
 		}
 		path = newpath
 		if i == linksWalked {
 			newpath = filepath.Join(string(os.PathSeparator), newpath)
 			if path == newpath {
-				return filepath.Join(root, newpath), nil
+				result.path = filepath.Join(root, newpath)
+				return result, nil
 			}
 			path = newpath
 		}
 	}
 }
 
-func walkLink(root, path string, linksWalked *int) (newpath string, islink bool, err error) {
+func walkLink(root, path string, linksWalked *int, result *fsRootPathResult) (newpath string, islink bool, err error) {
 	if *linksWalked > 255 {
 		return "", false, errTooManyLinks
 	}
@@ -74,38 +90,55 @@ func walkLink(root, path string, linksWalked *int) (newpath string, islink bool,
 	if err != nil {
 		return "", false, err
 	}
+	if filepath.IsAbs(newpath) {
+		result.followedAbsoluteLink = true
+	}
+
 	*linksWalked++
 	return newpath, true, nil
 }
 
-func walkLinks(root, path string, linksWalked *int) (string, error) {
+func walkLinks(root, path string, linksWalked *int, result *fsRootPathResult) (string, error) {
 	switch dir, file := filepath.Split(path); {
 	case dir == "":
-		newpath, _, err := walkLink(root, file, linksWalked)
+		newpath, _, err := walkLink(root, file, linksWalked, result)
 		return newpath, err
 	case file == "":
 		if os.IsPathSeparator(dir[len(dir)-1]) {
 			if dir == string(os.PathSeparator) {
 				return dir, nil
 			}
-			return walkLinks(root, dir[:len(dir)-1], linksWalked)
+			return walkLinks(root, dir[:len(dir)-1], linksWalked, result)
 		}
-		newpath, _, err := walkLink(root, dir, linksWalked)
+		newpath, _, err := walkLink(root, dir, linksWalked, result)
 		return newpath, err
+
 	default:
-		newdir, err := walkLinks(root, dir, linksWalked)
+		newdir, err := walkLinks(root, dir, linksWalked, result)
 		if err != nil {
 			return "", err
 		}
-		newpath, islink, err := walkLink(root, filepath.Join(newdir, file), linksWalked)
+		newpath, islink, err := walkLink(root, filepath.Join(newdir, file), linksWalked, result)
 		if err != nil {
 			return "", err
 		}
-		if !islink {
+		if !islink || filepath.IsAbs(newpath) {
 			return newpath, nil
 		}
-		if filepath.IsAbs(newpath) {
-			return newpath, nil
+
+		// Determine whether resolving this relative symlink would escape the
+		// logical root. fsRootPath still bounds it to root, but callers may
+		// need to distinguish this from rebasing an absolute symlink.
+		if !result.followedAbsoluteLink {
+			relativeDir, err := filepath.Rel(string(os.PathSeparator), newdir)
+			if err != nil {
+				return "", err
+			}
+
+			resolved := filepath.Join(relativeDir, newpath)
+			if resolved != "." && !filepath.IsLocal(resolved) {
+				result.relativeEscapeBeforeAbsolute = true
+			}
 		}
 		return filepath.Join(newdir, newpath), nil
 	}
