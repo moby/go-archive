@@ -439,6 +439,63 @@ func (ta *tarAppender) addTarFile(srcPath, archivePath string) error {
 	return nil
 }
 
+// resolveArchivePath resolves intermediate symlinks in name using chroot-like
+// semantics when os.Root cannot traverse them. The final path component is
+// intentionally preserved because archive extraction may create or replace it.
+//
+// This is a compatibility workaround rather than the preferred long-term
+// implementation. It resolves the path separately before the actual operation,
+// so a concurrent filesystem change may cause the operation to affect a
+// different path within root. The subsequent os.Root operation still confines
+// the operation to root and prevents such a change from escaping it.
+//
+// Paths with missing components are supported. Existing symlinks are resolved,
+// and any remaining nonexistent components are retained for later creation.
+//
+// This helper should eventually be replaced by handle-relative resolution and
+// operations with resolve-in-root semantics, avoiding the resolution/use race
+// and repeated path traversal.
+func resolveArchivePath(root *os.Root, name string) (string, error) {
+	parent, base := filepath.Split(name)
+	if parent == "" {
+		return name, nil
+	}
+
+	parent = filepath.Clean(parent)
+
+	// Follow the final parent component: it is an intermediate component of name,
+	// and an absolute symlink there must trigger the resolve-in-root fallback.
+	_, err := root.Stat(parent)
+	switch {
+	case err == nil:
+		return name, nil
+	case !os.IsNotExist(err) && !isPathEscapes(err):
+		return "", err
+	}
+
+	// Stat may report ENOENT either because an ordinary component is missing or
+	// because a symlink points to a missing target. Resolve the parent in both
+	// cases so that dangling symlinks retain chroot-like semantics.
+	resolvedParent, err := fsRootPath(root.Name(), parent)
+	if err != nil {
+		return "", err
+	}
+
+	relParent, err := filepath.Rel(root.Name(), resolvedParent)
+	if err != nil {
+		return "", err
+	}
+	if relParent != "." && !filepath.IsLocal(relParent) {
+		return "", breakoutError(fmt.Errorf(
+			"resolved parent %q escapes root %q",
+			resolvedParent,
+			root.Name(),
+		))
+	}
+
+	return filepath.Join(relParent, base), nil
+}
+
 // createTarFile extracts a single tar entry into the given root. dstPath is the
 // root-relative path of the entry being extracted, in native (host-separator)
 // form so it can be passed directly to os.Root methods and fsRootPath.
@@ -931,7 +988,10 @@ loop:
 		// dstPath is the native (host-separator) form of the entry name,
 		// used at all filesystem boundaries (os.Root methods, fsRootPath).
 		// hdr.Name stays POSIX (forward-slash) for logical string checks.
-		dstPath := filepath.FromSlash(hdr.Name)
+		dstPath, err := resolveArchivePath(root, filepath.FromSlash(hdr.Name))
+		if err != nil {
+			return err
+		}
 
 		// If dstPath exists we almost always just want to remove and replace it.
 		// The only exception is when it is a directory *and* the file from
@@ -969,7 +1029,7 @@ loop:
 		//
 		// This must be done before whiteoutConverter.ConvertRead, which
 		// may set xattrs on the directory or create whiteout files.
-		if err := createImpliedDirectories(root, hdr, options); err != nil {
+		if err := createImpliedDirectories(root, dstPath, options); err != nil {
 			return err
 		}
 
@@ -1024,17 +1084,19 @@ func unrepresentableOnWindows(hdr *tar.Header) error {
 	return nil
 }
 
-// createImpliedDirectories will create all parent directories of the current path with default permissions, if they do
-// not already exist. This is possible as the tar format supports 'implicit' directories, where their existence is
-// defined by the paths of files in the tar, but there are no header entries for the directories themselves, and thus
-// we most both create them and choose metadata like permissions.
+// createImpliedDirectories creates all parent directories of dstPath with
+// default permissions if they do not already exist. This is necessary because
+// the tar format permits implicit directories whose existence is defined only
+// by file paths, without corresponding directory headers from which metadata
+// could be restored.
 //
-// The caller must have normalized hdr.Name (no leading ".." components).
-// All directory creation is performed via root so it is bounded within the
-// destination at the OS level (openat(2) semantics), preventing escape via
-// symlinks in the destination tree.
-func createImpliedDirectories(root *os.Root, hdr *tar.Header, options *TarOptions) error {
-	parent := filepath.FromSlash(path.Dir(strings.TrimSuffix(hdr.Name, "/")))
+// The caller must pass a normalized, root-relative local path. Any archive-path
+// conversion and resolve-in-root handling must already have been applied.
+// Directory creation is performed through root, so it remains confined to the
+// extraction destination even if the destination tree changes concurrently.
+func createImpliedDirectories(root *os.Root, dstPath string, options *TarOptions) error {
+	parent := filepath.Dir(dstPath)
+
 	// Skip when the parent is the root itself; nothing to create.
 	if parent == "." || parent == "" {
 		return nil
