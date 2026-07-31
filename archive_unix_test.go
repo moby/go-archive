@@ -510,3 +510,87 @@ func TestHandleTarTypeBlockCharFifoDeviceRange(t *testing.T) {
 		})
 	}
 }
+
+// TestUntarThroughAbsoluteSymlink verifies that archive extraction follows a
+// pre-existing absolute symlink relative to the extraction root, including
+// when the symlink target or directories following it do not yet exist.
+//
+// Regression test for https://github.com/moby/moby/issues/53258
+func TestUntarThroughAbsoluteSymlink(t *testing.T) {
+	unpackers := []struct {
+		name   string
+		unpack func(dest string, r io.Reader) error
+	}{
+		{
+			name: "Untar",
+			unpack: func(dest string, r io.Reader) error {
+				return Untar(r, dest, &TarOptions{NoLchown: true})
+			},
+		},
+		{
+			name: "UnpackLayer",
+			unpack: func(dest string, r io.Reader) error {
+				_, err := UnpackLayer(dest, r, &TarOptions{NoLchown: true})
+				return err
+			},
+		},
+	}
+
+	for _, unpacker := range unpackers {
+		t.Run(unpacker.name, func(t *testing.T) {
+			for _, tc := range []struct {
+				name         string
+				createTarget bool
+			}{
+				{
+					name:         "existing target",
+					createTarget: true,
+				},
+				{
+					name:         "missing target",
+					createTarget: false,
+				},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					const (
+						name    = "var/run/existing/non-existing/file"
+						content = "content"
+					)
+
+					dest := t.TempDir()
+					assert.NilError(t, os.Mkdir(filepath.Join(dest, "var"), 0o755))
+					if tc.createTarget {
+						assert.NilError(t, os.MkdirAll(
+							filepath.Join(dest, "run", "existing"),
+							0o755,
+						))
+					}
+					assert.NilError(t, os.Symlink(
+						"/run",
+						filepath.Join(dest, "var", "run"),
+					))
+
+					buf := &bytes.Buffer{}
+					tw := tar.NewWriter(buf)
+					assert.NilError(t, tw.WriteHeader(&tar.Header{
+						Name:     name,
+						Typeflag: tar.TypeReg,
+						Mode:     0o644,
+						Size:     int64(len(content)),
+					}))
+					_, err := io.WriteString(tw, content)
+					assert.NilError(t, err)
+					assert.NilError(t, tw.Close())
+
+					assert.NilError(t, unpacker.unpack(dest, buf))
+
+					actual, err := os.ReadFile(filepath.Join(
+						dest, "run", "existing", "non-existing", "file",
+					))
+					assert.NilError(t, err)
+					assert.DeepEqual(t, actual, []byte(content))
+				})
+			}
+		})
+	}
+}
