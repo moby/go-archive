@@ -698,13 +698,13 @@ func (t *Tarballer) Do() {
 
 	defer func() {
 		// Make sure to check the error on Close.
-		if err := ta.TarWriter.Close(); err != nil {
+		if err := ta.TarWriter.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 			log.G(context.TODO()).Errorf("Can't close tar writer: %s", err)
 		}
-		if err := t.compressWriter.Close(); err != nil {
+		if err := t.compressWriter.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 			log.G(context.TODO()).Errorf("Can't close compress writer: %s", err)
 		}
-		if err := t.pipeWriter.Close(); err != nil {
+		if err := t.pipeWriter.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 			log.G(context.TODO()).Errorf("Can't close pipe writer: %s", err)
 		}
 	}()
