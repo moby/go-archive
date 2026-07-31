@@ -90,6 +90,14 @@ func TestImpliedDirectoryPermissions(t *testing.T) {
 		Name:     "explicit/permissions/umask/file",
 		Typeflag: tar.TypeReg,
 		Mode:     0o666,
+	}, {
+		// Deliberately omit the trailing slash to match the normalized path passed
+		// to createImpliedDirectories; Typeflag is the authoritative directory marker.
+		//
+		// Regression test for https://github.com/moby/moby/issues/53257
+		Name:     "implied/dir-without-trailing-slash",
+		Typeflag: tar.TypeDir,
+		Mode:     0o700,
 	}}
 
 	w := tar.NewWriter(buf)
