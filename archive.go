@@ -465,35 +465,54 @@ func resolveArchivePath(root *os.Root, name string) (string, error) {
 
 	// Follow the final parent component: it is an intermediate component of name,
 	// and an absolute symlink there must trigger the resolve-in-root fallback.
-	_, err := root.Stat(parent)
+	_, statErr := root.Stat(parent)
 	switch {
-	case err == nil:
+	case statErr == nil:
 		return name, nil
-	case !os.IsNotExist(err) && !isPathEscapes(err):
-		return "", err
+	case !os.IsNotExist(statErr) && !isPathEscapes(statErr):
+		return "", statErr
 	}
 
-	// Stat may report ENOENT either because an ordinary component is missing or
-	// because a symlink points to a missing target. Resolve the parent in both
-	// cases so that dangling symlinks retain chroot-like semantics.
-	resolvedParent, err := fsRootPath(root.Name(), parent)
+	// Resolve the parent both to handle ENOENT from missing components or dangling
+	// symlinks, and to determine whether an os.Root breakout was caused by an
+	// absolute symlink. Relative symlink escapes preserve the original Stat error.
+	resolved, err := resolveFSRootPath(root.Name(), parent)
 	if err != nil {
 		return "", err
 	}
 
-	relParent, err := filepath.Rel(root.Name(), resolvedParent)
+	if isPathEscapes(statErr) && (!resolved.followedAbsoluteLink || resolved.relativeEscapeBeforeAbsolute) {
+		return "", statErr
+	}
+
+	relParent, err := filepath.Rel(root.Name(), resolved.path)
 	if err != nil {
-		return "", err
+		return "", breakoutError(fmt.Errorf(
+			"could not make resolved parent %q relative to root %q: %w",
+			resolved.path,
+			root.Name(),
+			err,
+		))
 	}
 	if relParent != "." && !filepath.IsLocal(relParent) {
 		return "", breakoutError(fmt.Errorf(
 			"resolved parent %q escapes root %q",
-			resolvedParent,
+			resolved.path,
 			root.Name(),
 		))
 	}
 
 	return filepath.Join(relParent, base), nil
+}
+
+// resolveHardlinkTarget validates a POSIX hardlink target and resolves it to
+// the native, root-relative filesystem path used for extraction.
+func resolveHardlinkTarget(root *os.Root, linkname string) (string, error) {
+	cleaned := path.Clean(linkname)
+	if cleaned == "." || !filepath.IsLocal(cleaned) {
+		return "", breakoutError(fmt.Errorf("invalid hardlink target %q", linkname))
+	}
+	return resolveArchivePath(root, filepath.FromSlash(cleaned))
 }
 
 // createTarFile extracts a single tar entry into the given root. dstPath is the
@@ -518,6 +537,15 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 	// but for os.Foo() calls we need the mode converted to os.FileMode,
 	// so use hdrInfo.Mode() (they differ for e.g. setuid bits)
 	hdrInfo := hdr.FileInfo()
+
+	var hardlinkTarget string
+	if hdr.Typeflag == tar.TypeLink {
+		var err error
+		hardlinkTarget, err = resolveHardlinkTarget(root, hdr.Linkname)
+		if err != nil {
+			return err
+		}
+	}
 
 	switch hdr.Typeflag {
 	case tar.TypeDir:
@@ -568,13 +596,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		}
 
 	case tar.TypeLink:
-		// Defence in depth: root.Link's containment is limited when
-		// dest is a volume root.
-		linkname := path.Clean(hdr.Linkname)
-		if linkname == "." || !filepath.IsLocal(linkname) {
-			return breakoutError(fmt.Errorf("invalid hardlink target %q", hdr.Linkname))
-		}
-		if err := root.Link(filepath.FromSlash(linkname), dstPath); err != nil {
+		if err := root.Link(hardlinkTarget, dstPath); err != nil {
 			return err
 		}
 
@@ -650,7 +672,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 
 	// There is no LChmod, so ignore mode for symlink. Also, this
 	// must happen after chown, as that can modify the file mode
-	if err := handleLChmod(root, dstPath, hdr, hdrInfo); err != nil {
+	if err := handleLChmod(root, dstPath, hardlinkTarget, hdr, hdrInfo); err != nil {
 		return err
 	}
 
@@ -665,7 +687,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		}
 	case tar.TypeLink:
 		// Follow the hardlink only when its target is not itself a symlink.
-		fi, err := root.Lstat(filepath.FromSlash(path.Clean(hdr.Linkname)))
+		fi, err := root.Lstat(hardlinkTarget)
 		if err == nil && fi.Mode()&os.ModeSymlink == 0 {
 			if err := chtimes(root, dstPath, aTime, mTime); err != nil {
 				return err
