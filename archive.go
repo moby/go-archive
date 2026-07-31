@@ -487,7 +487,12 @@ func resolveArchivePath(root *os.Root, name string) (string, error) {
 
 	relParent, err := filepath.Rel(root.Name(), resolved.path)
 	if err != nil {
-		return "", err
+		return "", breakoutError(fmt.Errorf(
+			"could not make resolved parent %q relative to root %q: %w",
+			resolved.path,
+			root.Name(),
+			err,
+		))
 	}
 	if relParent != "." && !filepath.IsLocal(relParent) {
 		return "", breakoutError(fmt.Errorf(

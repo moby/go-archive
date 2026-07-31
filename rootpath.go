@@ -92,6 +92,18 @@ func walkLink(root, path string, linksWalked *int, result *fsRootPathResult) (ne
 	}
 	if filepath.IsAbs(newpath) {
 		result.followedAbsoluteLink = true
+	} else if !result.followedAbsoluteLink {
+		// Record an escape before a later absolute link can make the original
+		// os.Root error appear eligible for resolve-in-root fallback.
+		relativeDir, err := filepath.Rel(string(os.PathSeparator), filepath.Dir(path))
+		if err != nil {
+			return "", false, err
+		}
+
+		resolved := filepath.Join(relativeDir, newpath)
+		if resolved != "." && !filepath.IsLocal(resolved) {
+			result.relativeEscapeBeforeAbsolute = true
+		}
 	}
 
 	*linksWalked++
@@ -124,21 +136,6 @@ func walkLinks(root, path string, linksWalked *int, result *fsRootPathResult) (s
 		}
 		if !islink || filepath.IsAbs(newpath) {
 			return newpath, nil
-		}
-
-		// Determine whether resolving this relative symlink would escape the
-		// logical root. fsRootPath still bounds it to root, but callers may
-		// need to distinguish this from rebasing an absolute symlink.
-		if !result.followedAbsoluteLink {
-			relativeDir, err := filepath.Rel(string(os.PathSeparator), newdir)
-			if err != nil {
-				return "", err
-			}
-
-			resolved := filepath.Join(relativeDir, newpath)
-			if resolved != "." && !filepath.IsLocal(resolved) {
-				result.relativeEscapeBeforeAbsolute = true
-			}
 		}
 		return filepath.Join(newdir, newpath), nil
 	}
