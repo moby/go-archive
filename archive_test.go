@@ -965,6 +965,40 @@ func TestUntarInvalidHardlink(t *testing.T) {
 	}
 }
 
+// TestUntarAbsoluteHardlink verifies that a hardlink whose target is an
+// absolute path (as written by some image builders, e.g. kaniko) is resolved
+// relative to the extraction root, while absolute targets with relative
+// escapes remain rejected (see TestUntarInvalidHardlink).
+func TestUntarAbsoluteHardlink(t *testing.T) {
+	dest := t.TempDir()
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	assert.NilError(t, tw.WriteHeader(&tar.Header{
+		Name:     "usr/bin/perlbug",
+		Typeflag: tar.TypeReg,
+		Mode:     0o755,
+		Size:     5,
+	}))
+	_, err := tw.Write([]byte("hello"))
+	assert.NilError(t, err)
+	assert.NilError(t, tw.WriteHeader(&tar.Header{
+		Name:     "usr/bin/perlthanks",
+		Typeflag: tar.TypeLink,
+		Linkname: "/usr/bin/perlbug",
+		Mode:     0o755,
+	}))
+	assert.NilError(t, tw.Close())
+
+	assert.NilError(t, Untar(&buf, dest, &TarOptions{NoLchown: true}))
+
+	fi1, err := os.Stat(filepath.Join(dest, "usr", "bin", "perlbug"))
+	assert.NilError(t, err)
+	fi2, err := os.Stat(filepath.Join(dest, "usr", "bin", "perlthanks"))
+	assert.NilError(t, err)
+	assert.Assert(t, os.SameFile(fi1, fi2), "expected hardlinked files to share an inode")
+}
+
 func TestUntarInvalidSymlink(t *testing.T) {
 	for i, headers := range [][]*tar.Header{
 		{ // try reading victim/hello (../)

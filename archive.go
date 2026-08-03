@@ -509,6 +509,14 @@ func resolveArchivePath(root *os.Root, name string) (string, error) {
 // the native, root-relative filesystem path used for extraction.
 func resolveHardlinkTarget(root *os.Root, linkname string) (string, error) {
 	cleaned := path.Clean(linkname)
+	if strings.HasPrefix(cleaned, "/") {
+		// Some image builders (e.g. kaniko) write hardlink targets as absolute
+		// paths. Resolve those relative to the extraction root, with chroot-like
+		// semantics matching absolute symlink targets. Strip the root from the
+		// original linkname rather than the cleaned one so that ".." components
+		// are not collapsed against "/" but instead rejected below.
+		cleaned = path.Clean(strings.TrimLeft(linkname, "/"))
+	}
 	if cleaned == "." || !filepath.IsLocal(cleaned) {
 		return "", breakoutError(fmt.Errorf("invalid hardlink target %q", linkname))
 	}
