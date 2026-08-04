@@ -233,7 +233,6 @@ func TestChmodNoSymlinkFallback(t *testing.T) {
 		name   string
 		nodev  bool
 		create func(string) error
-		broken bool
 
 		needsRoot bool
 	}{
@@ -248,7 +247,6 @@ func TestChmodNoSymlinkFallback(t *testing.T) {
 			create: func(p string) error {
 				return os.WriteFile(p, nil, 0o200)
 			},
-			broken: true,
 		},
 		{
 			name: "directory",
@@ -269,7 +267,6 @@ func TestChmodNoSymlinkFallback(t *testing.T) {
 				return mknod(p, unix.S_IFCHR|0o600, unix.Mkdev(1, 3))
 			},
 			needsRoot: true,
-			broken:    true,
 		},
 		{
 			name:  "block-device-on-nodev",
@@ -278,7 +275,6 @@ func TestChmodNoSymlinkFallback(t *testing.T) {
 				return mknod(p, unix.S_IFBLK|0o600, unix.Mkdev(7, 0))
 			},
 			needsRoot: true,
-			broken:    true,
 		},
 		{
 			// see https://github.com/moby/moby/issues/53299
@@ -287,13 +283,9 @@ func TestChmodNoSymlinkFallback(t *testing.T) {
 				return mknod(entryPath, unix.S_IFCHR|0o666, unix.Mkdev(5, 2))
 			},
 			needsRoot: true,
-			broken:    true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.broken {
-				t.Skip("FIXME: fallback cannot open device nodes on nodev mounts")
-			}
 			if tc.needsRoot {
 				skip.If(t, os.Getuid() != 0, "requires root")
 				skip.If(t, userns.RunningInUserNS(), "requires initial user namespace")

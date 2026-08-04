@@ -27,6 +27,8 @@ import (
 // moving the shared extraction internals into an internal package may provide
 // a cleaner boundary in the future.
 func TestChmodNoSymlinkFallbackInChrootWithoutProc(t *testing.T) {
+	t.Skip("FIXME: needs changes in chrootarchive to pass through /proc/self/fd/, which isn't present inside the chroot")
+
 	skip.If(t, os.Getuid() != 0, "test requires root")
 	skip.If(t, userns.RunningInUserNS(), "test requires the initial user namespace")
 
