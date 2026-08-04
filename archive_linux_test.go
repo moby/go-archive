@@ -307,7 +307,7 @@ func TestChmodNoSymlinkFallback(t *testing.T) {
 			defer parent.Close()
 
 			// #nosec G115 -- file descriptors fit in int on supported platforms.
-			err = chmodNoSymlinkFallback(int(parent.Fd()), tc.name, tc.name, 0o640)
+			err = chmodNoSymlinkFallback(int(parent.Fd()), tc.name, tc.name, 0o640, nil)
 			assert.NilError(t, err, "entryPath: %s", entryPath)
 
 			fi, err := os.Lstat(entryPath)

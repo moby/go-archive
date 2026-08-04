@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/moby/go-archive/internal/archiveoptions"
 	"golang.org/x/sys/unix"
 )
 
@@ -87,7 +88,7 @@ func handleTarTypeBlockCharFifo(root *os.Root, hdr *tar.Header, dstPath string) 
 // handleLChmod applies the mode from hdrInfo to dstPath within root, skipping
 // symlinks (there is no lchmod). For hardlinks, the mode is applied only when
 // the link target is itself not a symlink.
-func handleLChmod(root *os.Root, dstPath string, hardlinkTarget string, hdr *tar.Header, hdrInfo os.FileInfo) error {
+func handleLChmod(root *os.Root, dstPath string, hardlinkTarget string, hdr *tar.Header, hdrInfo os.FileInfo, opts *archiveoptions.Options) error {
 	switch hdr.Typeflag {
 	case tar.TypeSymlink:
 		return nil
@@ -99,17 +100,17 @@ func handleLChmod(root *os.Root, dstPath string, hardlinkTarget string, hdr *tar
 		if err != nil || fi.Mode()&os.ModeSymlink != 0 {
 			return nil
 		}
-		return chmodNoSymlink(root, dstPath, hdrInfo.Mode())
+		return chmodNoSymlink(root, dstPath, hdrInfo.Mode(), opts)
 
 	default:
-		return chmodNoSymlink(root, dstPath, hdrInfo.Mode())
+		return chmodNoSymlink(root, dstPath, hdrInfo.Mode(), opts)
 	}
 }
 
 // chmodNoSymlink applies mode to a non-symlink entry.
 //
 // Callers must have already excluded symlink entries.
-func chmodNoSymlink(root *os.Root, name string, mode os.FileMode) error {
+func chmodNoSymlink(root *os.Root, name string, mode os.FileMode, opts *archiveoptions.Options) error {
 	parent, err := root.OpenFile(filepath.Dir(name), os.O_RDONLY, 0)
 	if err != nil {
 		return err
@@ -126,7 +127,7 @@ func chmodNoSymlink(root *os.Root, name string, mode os.FileMode) error {
 	}
 
 	// Fallback for systems that cannot perform fchmodat with AT_SYMLINK_NOFOLLOW.
-	return chmodNoSymlinkFallback(int(parent.Fd()), base, name, perm) // #nosec G115 -- ignore integer overflow conversion for parent.Fd
+	return chmodNoSymlinkFallback(int(parent.Fd()), base, name, perm, opts) // #nosec G115 -- ignore integer overflow conversion for parent.Fd
 }
 
 // fileModeToPerm returns the subset of an os.FileMode that can be applied
