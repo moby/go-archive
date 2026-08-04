@@ -222,3 +222,98 @@ func TestOverlayTarAUFSUntar(t *testing.T) {
 	checkFileMode(t, filepath.Join(dst, "d2", "f1"), 0o660)
 	checkFileMode(t, filepath.Join(dst, "d3", WhiteoutPrefix+"f1"), 0o600)
 }
+
+// TestChmodNoSymlinkFallback verifies that the chmod fallback applies modes to
+// non-symlink entries, including device nodes on a nodev mount.
+//
+// Regression test for https://github.com/moby/go-archive/issues/98
+// Regression test for https://github.com/moby/moby/issues/53299
+func TestChmodNoSymlinkFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		nodev  bool
+		create func(string) error
+		broken bool
+
+		needsRoot bool
+	}{
+		{
+			name: "regular-file",
+			create: func(p string) error {
+				return os.WriteFile(p, nil, 0o600)
+			},
+		},
+		{
+			name: "directory",
+			create: func(p string) error {
+				return os.Mkdir(p, 0o700)
+			},
+		},
+		{
+			name: "fifo",
+			create: func(p string) error {
+				return unix.Mkfifo(p, 0o600)
+			},
+		},
+		{
+			name:  "character-device-on-nodev",
+			nodev: true,
+			create: func(p string) error {
+				return mknod(p, unix.S_IFCHR|0o600, unix.Mkdev(1, 3))
+			},
+			needsRoot: true,
+			broken:    true,
+		},
+		{
+			name:  "block-device-on-nodev",
+			nodev: true,
+			create: func(p string) error {
+				return mknod(p, unix.S_IFBLK|0o600, unix.Mkdev(7, 0))
+			},
+			needsRoot: true,
+			broken:    true,
+		},
+		{
+			// see https://github.com/moby/moby/issues/53299
+			name: "ptmx-device",
+			create: func(entryPath string) error {
+				return mknod(entryPath, unix.S_IFCHR|0o666, unix.Mkdev(5, 2))
+			},
+			needsRoot: true,
+			broken:    true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.broken {
+				t.Skip("FIXME: fallback cannot open device nodes on nodev mounts")
+			}
+			if tc.needsRoot {
+				skip.If(t, os.Getuid() != 0, "requires root")
+				skip.If(t, userns.RunningInUserNS(), "requires initial user namespace")
+			}
+
+			tmpDir := t.TempDir()
+			if tc.nodev {
+				assert.NilError(t, unix.Mount("tmpfs", tmpDir, "tmpfs", unix.MS_NODEV, ""))
+				t.Cleanup(func() {
+					assert.Check(t, unix.Unmount(tmpDir, 0))
+				})
+			}
+
+			entryPath := filepath.Join(tmpDir, tc.name)
+			assert.NilError(t, tc.create(entryPath))
+
+			parent, err := os.Open(tmpDir)
+			assert.NilError(t, err)
+			defer parent.Close()
+
+			// #nosec G115 -- file descriptors fit in int on supported platforms.
+			err = chmodNoSymlinkFallback(int(parent.Fd()), tc.name, tc.name, 0o640)
+			assert.NilError(t, err, "entryPath: %s", entryPath)
+
+			fi, err := os.Lstat(entryPath)
+			assert.NilError(t, err)
+			assert.Equal(t, fi.Mode().Perm(), os.FileMode(0o640))
+		})
+	}
+}

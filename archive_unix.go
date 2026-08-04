@@ -126,10 +126,15 @@ func chmodNoSymlink(root *os.Root, name string, mode os.FileMode) error {
 	}
 
 	// Fallback for systems that cannot perform fchmodat with AT_SYMLINK_NOFOLLOW.
-	// Open the entry without following symlinks and apply the mode through the
-	// resulting file descriptor.
-	// #nosec G115 -- ignore integer overflow conversion for parent.Fd
-	fd, err := unix.Openat(int(parent.Fd()), base, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+	return chmodNoSymlinkFallback(int(parent.Fd()), base, name, perm) // #nosec G115 -- ignore integer overflow conversion for parent.Fd
+}
+
+// chmodNoSymlinkFallback applies mode without following the final path
+// component on systems without fchmodat2 support.
+//
+// Callers must have already excluded symlink entries.
+func chmodNoSymlinkFallback(parentFD int, base, name string, perm uint32) error {
+	fd, err := unix.Openat(parentFD, base, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return &os.PathError{Op: "openat", Path: name, Err: err}
 	}
