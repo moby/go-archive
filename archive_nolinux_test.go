@@ -9,6 +9,7 @@ import (
 
 	"golang.org/x/sys/unix"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/skip"
 )
 
 // TestChmodNoSymlinkFallback verifies that the chmod fallback applies modes to
@@ -17,12 +18,21 @@ func TestChmodNoSymlinkFallback(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		create func(string) error
+
+		needsRoot bool
 	}{
 		{
 			name: "regular-file",
 			create: func(p string) error {
 				return os.WriteFile(p, nil, 0o600)
 			},
+		},
+		{
+			name: "regular-file-no-read-permission",
+			create: func(p string) error {
+				return os.WriteFile(p, nil, 0o200)
+			},
+			needsRoot: true, // non-Linux fallback opens the file with O_RDONLY before chmod.
 		},
 		{
 			name: "directory",
@@ -38,6 +48,9 @@ func TestChmodNoSymlinkFallback(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.needsRoot {
+				skip.If(t, os.Getuid() != 0, "non-Linux fallback requires root to open files without read permission")
+			}
 			tmpDir := t.TempDir()
 			entryPath := filepath.Join(tmpDir, tc.name)
 			assert.NilError(t, tc.create(entryPath))

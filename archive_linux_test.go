@@ -244,6 +244,13 @@ func TestChmodNoSymlinkFallback(t *testing.T) {
 			},
 		},
 		{
+			name: "regular-file-no-read-permission",
+			create: func(p string) error {
+				return os.WriteFile(p, nil, 0o200)
+			},
+			broken: true,
+		},
+		{
 			name: "directory",
 			create: func(p string) error {
 				return os.Mkdir(p, 0o700)
