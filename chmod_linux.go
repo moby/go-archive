@@ -3,6 +3,7 @@ package archive
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 
 	"github.com/moby/go-archive/internal/archiveoptions"
@@ -21,7 +22,10 @@ func chmodNoSymlinkFallback(parentFD int, base, name string, perm uint32, opts *
 	defer unix.Close(fd)
 
 	if opts != nil && opts.ProcSelfFD != nil {
-		if err := unix.Fchmodat(int(opts.ProcSelfFD.Fd()), strconv.Itoa(fd), perm, 0); err != nil {
+		err := unix.Fchmodat(int(opts.ProcSelfFD.Fd()), strconv.Itoa(fd), perm, 0)
+		// Keep the os.File alive until fchmodat has finished using its descriptor.
+		runtime.KeepAlive(opts.ProcSelfFD)
+		if err != nil {
 			return &os.PathError{
 				Op:   "fchmodat",
 				Path: name,
