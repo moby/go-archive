@@ -14,7 +14,7 @@ import (
 //
 // Callers must have already excluded symlink entries.
 func chmodNoSymlinkFallback(parentFD int, base, name string, perm uint32, _ *archiveoptions.Options) error {
-	fd, err := unix.Openat(parentFD, base, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+	fd, err := unix.Openat(parentFD, base, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return &os.PathError{Op: "openat", Path: name, Err: err}
 	}
