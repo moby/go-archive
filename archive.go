@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/containerd/log"
+	"github.com/moby/go-archive/internal/archiveoptions"
 	"github.com/moby/patternmatcher"
 	"github.com/moby/sys/sequential"
 	"github.com/moby/sys/user"
@@ -81,8 +82,21 @@ type (
 		// were probably in the archive for a reason, so set this option at
 		// your own peril.
 		BestEffortXattrs bool
+
+		// internalOptions contains options for use by packages within this module.
+		internalOptions *archiveoptions.Options
 	}
 )
+
+// WithProcSelfFD returns a copy of opts prepared for extraction in a
+// filesystem context where /proc/self/fd may not be accessible by path.
+//
+// The caller must invoke the returned cleanup function after extraction
+// completes. On platforms that do not use /proc/self/fd for extraction,
+// the returned cleanup function is a no-op.
+func WithProcSelfFD(opts *TarOptions) (*TarOptions, func(), error) {
+	return withProcSelfFD(opts)
+}
 
 // Archiver implements the Archiver interface and allows the reuse of most utility functions of
 // this package with a pluggable Untar function. Also, to facilitate the passing of specific id
@@ -531,6 +545,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		Lchown                     = true
 		inUserns, bestEffortXattrs bool
 		chownOpts                  *ChownOpts
+		internalOpts               *archiveoptions.Options
 	)
 
 	// TODO(thaJeztah): make opts a required argument.
@@ -539,6 +554,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		inUserns = opts.InUserNS // TODO(thaJeztah): consider deprecating opts.InUserNS and detect locally.
 		chownOpts = opts.ChownOpts
 		bestEffortXattrs = opts.BestEffortXattrs
+		internalOpts = opts.internalOptions
 	}
 
 	// hdr.Mode is in linux format, which we can use for sycalls,
@@ -680,7 +696,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 
 	// There is no LChmod, so ignore mode for symlink. Also, this
 	// must happen after chown, as that can modify the file mode
-	if err := handleLChmod(root, dstPath, hardlinkTarget, hdr, hdrInfo); err != nil {
+	if err := handleLChmod(root, dstPath, hardlinkTarget, hdr, hdrInfo, internalOpts); err != nil {
 		return err
 	}
 

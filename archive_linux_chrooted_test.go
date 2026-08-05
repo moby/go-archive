@@ -36,6 +36,10 @@ func TestChmodNoSymlinkFallbackInChrootWithoutProc(t *testing.T) {
 	assert.NilError(t, os.Mkdir(filepath.Join(root, filepath.Dir(name)), 0o755))
 	assert.NilError(t, os.WriteFile(filepath.Join(root, name), nil, 0o600))
 
+	opts, cleanup, err := WithProcSelfFD(nil)
+	assert.NilError(t, err)
+	defer cleanup()
+
 	setupFn := func() error {
 		if err := mount.MakeRSlave("/"); err != nil {
 			return err
@@ -44,7 +48,7 @@ func TestChmodNoSymlinkFallbackInChrootWithoutProc(t *testing.T) {
 	}
 
 	var testErr error
-	err := unshare.Go(unix.CLONE_FS|unix.CLONE_NEWNS, setupFn, func() {
+	err = unshare.Go(unix.CLONE_FS|unix.CLONE_NEWNS, setupFn, func() {
 		if _, err := os.Stat("/proc/self/fd"); !errors.Is(err, os.ErrNotExist) {
 			testErr = fmt.Errorf("/proc/self/fd: expected not to exist, got %w", err)
 			return
@@ -57,7 +61,7 @@ func TestChmodNoSymlinkFallbackInChrootWithoutProc(t *testing.T) {
 		}
 		defer unix.Close(parentFD)
 
-		if err := chmodNoSymlinkFallback(parentFD, filepath.Base(name), name, 0o644); err != nil {
+		if err := chmodNoSymlinkFallback(parentFD, filepath.Base(name), name, 0o644, opts.internalOptions); err != nil {
 			testErr = err
 			return
 		}
