@@ -258,10 +258,6 @@ func TestChangesWithChangesGH13590(t *testing.T) {
 
 // Create a directory, copy it, make sure we report no changes between the two
 func TestChangesDirsEmpty(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("FIXME: broken on Windows 1903 and up; see https://github.com/moby/moby/pull/39846")
-	}
-
 	src, err := os.MkdirTemp("", "docker-changes-test")
 	assert.NilError(t, err)
 	defer os.RemoveAll(src)
@@ -350,10 +346,6 @@ func mutateSampleDir(t *testing.T, rootPath string) {
 }
 
 func TestChangesDirsMutated(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("FIXME: broken on Windows 1903 and up; see https://github.com/moby/moby/pull/39846")
-	}
-
 	src, err := os.MkdirTemp("", "docker-changes-test")
 	assert.NilError(t, err)
 	createSampleDir(t, src)
