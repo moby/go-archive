@@ -695,6 +695,70 @@ func prepareUntarSourceDirectory(numberOfFiles int, targetPath string, makeLinks
 	return totalSize, nil
 }
 
+func BenchmarkUnpackManyFilesSameParent(b *testing.B) {
+	const files = 4096
+
+	tarData := makeTarWithFiles(b, "dir/subdir", files)
+	target := filepath.Join(b.TempDir(), "dest")
+	options := &TarOptions{NoLchown: true}
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(tarData)))
+	b.ResetTimer()
+	for range b.N {
+		b.StopTimer()
+		if err := os.RemoveAll(target); err != nil {
+			b.Fatal(err)
+		}
+		if err := os.Mkdir(target, 0o755); err != nil {
+			b.Fatal(err)
+		}
+		r := bytes.NewReader(tarData)
+		b.StartTimer()
+
+		if err := Unpack(r, target, options); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkCreateImpliedDirectoriesSameParent(b *testing.B) {
+	dstPath := filepath.Join("dir", "subdir", "file")
+	options := &TarOptions{NoLchown: true}
+
+	for _, tc := range []struct {
+		name   string
+		cached bool
+	}{
+		{name: "uncached"},
+		{name: "cached", cached: true},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			root, err := os.OpenRoot(b.TempDir())
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer root.Close()
+
+			var cache *impliedDirectoryCache
+			if tc.cached {
+				cache = &impliedDirectoryCache{}
+			}
+			if err := createImpliedDirectories(root, dstPath, options, cache); err != nil {
+				b.Fatal(err)
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				if err := createImpliedDirectories(root, dstPath, options, cache); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkTarUntar(b *testing.B) {
 	origin, err := os.MkdirTemp(b.TempDir(), "docker-test-untar-origin")
 	if err != nil {
@@ -854,6 +918,39 @@ func TestUntarSiblingPrefixContained(t *testing.T) {
 	// No hardlink to the sibling's secret may be created inside dest.
 	_, statErr := os.Stat(filepath.Join(dest, "grab"))
 	assert.ErrorIs(t, statErr, os.ErrNotExist, "hardlink to prefix-sibling created")
+}
+
+func TestApplyLayerImpliedDirAfterWhiteout(t *testing.T) {
+	dest := t.TempDir()
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	writeFile := func(name, contents string) {
+		t.Helper()
+		assert.NilError(t, tw.WriteHeader(&tar.Header{
+			Name:     name,
+			Typeflag: tar.TypeReg,
+			Mode:     0o644,
+			Size:     int64(len(contents)),
+		}))
+		if contents != "" {
+			_, err := tw.Write([]byte(contents))
+			assert.NilError(t, err)
+		}
+	}
+	writeFile("dir/file1", "one")
+	writeFile(".wh.dir", "")
+	writeFile("dir/file2", "two")
+	assert.NilError(t, tw.Close())
+
+	_, err := ApplyUncompressedLayer(dest, &buf, &TarOptions{NoLchown: true})
+	assert.NilError(t, err)
+
+	_, err = os.Stat(filepath.Join(dest, "dir", "file1"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	dt, err := os.ReadFile(filepath.Join(dest, "dir", "file2"))
+	assert.NilError(t, err)
+	assert.Equal(t, string(dt), "two")
 }
 
 func TestUntarHardlinkToSymlink(t *testing.T) {
@@ -1294,4 +1391,29 @@ func readFileFromArchive(t *testing.T, archive io.ReadCloser, name string, expec
 	content, err := os.ReadFile(filepath.Join(destDir, name))
 	assert.Check(t, err)
 	return string(content)
+}
+
+func makeTarWithFiles(tb testing.TB, parent string, numberOfFiles int) []byte {
+	tb.Helper()
+
+	fileData := []byte("fooo")
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for n := range numberOfFiles {
+		if err := tw.WriteHeader(&tar.Header{
+			Name:     fmt.Sprintf("%s/file-%d", parent, n),
+			Typeflag: tar.TypeReg,
+			Mode:     0o700,
+			Size:     int64(len(fileData)),
+		}); err != nil {
+			tb.Fatal(err)
+		}
+		if _, err := tw.Write(fileData); err != nil {
+			tb.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		tb.Fatal(err)
+	}
+	return buf.Bytes()
 }

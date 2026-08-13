@@ -29,6 +29,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 	tr := tar.NewReader(layer)
 
 	var dirs []unpackedDir
+	var impliedDirs impliedDirectoryCache
 	// unpackedPaths tracks resolved, native-separator, root-relative paths
 	// already written in this layer so that the AUFS opaque-whiteout walk
 	// knows which paths to preserve.
@@ -109,7 +110,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 			return 0, err
 		}
 		// Ensure that the parent directory exists.
-		if err := createImpliedDirectories(root, dstPath, options); err != nil {
+		if err := createImpliedDirectories(root, dstPath, options, &impliedDirs); err != nil {
 			return 0, err
 		}
 		if base := filepath.Base(dstPath); strings.HasPrefix(base, WhiteoutPrefix) {
@@ -147,7 +148,10 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 					// unpackedPaths is keyed by resolved, native-separator,
 					// root-relative paths, matching filepath.WalkDir's paths.
 					if _, exists := unpackedPaths[rel]; !exists {
-						return root.RemoveAll(rel)
+						if err := root.RemoveAll(rel); err != nil {
+							return err
+						}
+						impliedDirs.parent = ""
 					}
 					return nil
 				})
@@ -160,6 +164,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 				if err := root.RemoveAll(originalPath); err != nil {
 					return 0, err
 				}
+				impliedDirs.parent = ""
 			}
 		} else {
 			// If dstPath exists we almost always just want to remove and replace it.
@@ -171,6 +176,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 					if err := root.RemoveAll(dstPath); err != nil {
 						return 0, err
 					}
+					impliedDirs.parent = ""
 				}
 			}
 

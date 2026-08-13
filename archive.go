@@ -987,6 +987,7 @@ func Unpack(decompressedArchive io.Reader, dest string, options *TarOptions) err
 	tr := tar.NewReader(decompressedArchive)
 
 	var dirs []unpackedDir
+	var impliedDirs impliedDirectoryCache
 	whiteoutConverter := getWhiteoutConverter(options.WhiteoutFormat)
 
 	// Iterate through the files in the archive.
@@ -1064,6 +1065,7 @@ loop:
 				if err := root.RemoveAll(dstPath); err != nil {
 					return err
 				}
+				impliedDirs.parent = ""
 			}
 		}
 
@@ -1075,7 +1077,7 @@ loop:
 		//
 		// This must be done before whiteoutConverter.ConvertRead, which
 		// may set xattrs on the directory or create whiteout files.
-		if err := createImpliedDirectories(root, dstPath, options); err != nil {
+		if err := createImpliedDirectories(root, dstPath, options, &impliedDirs); err != nil {
 			return err
 		}
 
@@ -1130,6 +1132,13 @@ func unrepresentableOnWindows(hdr *tar.Header) error {
 	return nil
 }
 
+// impliedDirectoryCache remembers the most recent parent directory for which
+// createImpliedDirectories succeeded. Reset parent after any extraction-side
+// removal because that removal may have deleted the cached directory.
+type impliedDirectoryCache struct {
+	parent string
+}
+
 // createImpliedDirectories creates all parent directories of dstPath with
 // default permissions if they do not already exist. This is necessary because
 // the tar format permits implicit directories whose existence is defined only
@@ -1140,14 +1149,20 @@ func unrepresentableOnWindows(hdr *tar.Header) error {
 // conversion and resolve-in-root handling must already have been applied.
 // Directory creation is performed through root, so it remains confined to the
 // extraction destination even if the destination tree changes concurrently.
-func createImpliedDirectories(root *os.Root, dstPath string, options *TarOptions) error {
+func createImpliedDirectories(root *os.Root, dstPath string, options *TarOptions, cache *impliedDirectoryCache) error {
 	parent := filepath.Dir(dstPath)
 
 	// Skip when the parent is the root itself; nothing to create.
 	if parent == "." || parent == "" {
 		return nil
 	}
+	if cache != nil && cache.parent == parent {
+		return nil
+	}
 	if _, err := root.Lstat(parent); err == nil {
+		if cache != nil {
+			cache.parent = parent
+		}
 		return nil
 	} else if !os.IsNotExist(err) {
 		return err
@@ -1207,6 +1222,9 @@ func createImpliedDirectories(root *os.Root, dstPath string, options *TarOptions
 		}
 	}
 
+	if cache != nil {
+		cache.parent = parent
+	}
 	return nil
 }
 
