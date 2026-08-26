@@ -33,7 +33,7 @@ func TestHardLinkOrder(t *testing.T) {
 	}
 	// Create dest, with changes that includes hardlinks
 	dest := filepath.Join(tmpDir, "docker-hardlink-test-dest")
-	if err := copyDir(src, dest); err != nil {
+	if err := copyDir(t, src, dest); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range names {

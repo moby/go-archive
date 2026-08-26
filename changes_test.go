@@ -23,17 +23,26 @@ func maxInt(x, y int) int {
 	return y
 }
 
-func copyDir(src, dst string) error {
+func copyDir(t testing.TB, src, dst string) error {
+	t.Helper()
+
 	if runtime.GOOS != "windows" {
 		return exec.Command("cp", "-a", src, dst).Run()
+	}
+
+	if _, err := exec.LookPath("robocopy"); err != nil {
+		t.Skipf("robocopy not available: %v", err)
 	}
 
 	// Could have used xcopy src dst /E /I /H /Y /B. However, xcopy has the
 	// unfortunate side effect of not preserving timestamps of newly created
 	// directories in the target directory, so we don't get accurate changes.
 	// Use robocopy instead. Note this isn't available in microsoft/nanoserver.
-	// But it has gotchas. See https://weblogs.sqlteam.com/robv/archive/2010/02/17/61106.aspx
-	err := exec.Command("robocopy", filepath.FromSlash(src), filepath.FromSlash(dst), "/SL", "/COPYALL", "/MIR").Run()
+	// But it has gotchas. See https://weblogs.sqlteam.com/robv/2010/02/17/61106/
+	//
+	// Do not use /COPYALL here: it includes audit data (/COPY:U), which
+	// requires SeSecurityPrivilege and makes ordinary Windows test runs fail.
+	err := exec.Command("robocopy", filepath.FromSlash(src), filepath.FromSlash(dst), "/SL", "/COPY:DAT", "/DCOPY:DAT", "/MIR").Run()
 	var exitError *exec.ExitError
 	if errors.As(err, &exitError) {
 		if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
@@ -218,7 +227,7 @@ func TestChangesWithChangesGH13590(t *testing.T) {
 	defer os.RemoveAll(layer)
 
 	// Test creating a new file
-	if err := copyDir(filepath.Join(baseLayer, "dir1"), layer); err != nil {
+	if err := copyDir(t, filepath.Join(baseLayer, "dir1"), layer); err != nil {
 		t.Fatalf("Cmd failed: %q", err)
 	}
 
@@ -240,7 +249,7 @@ func TestChangesWithChangesGH13590(t *testing.T) {
 	assert.NilError(t, err)
 	defer os.RemoveAll(layer)
 
-	if err := copyDir(filepath.Join(baseLayer, "dir1"), layer); err != nil {
+	if err := copyDir(t, filepath.Join(baseLayer, "dir1"), layer); err != nil {
 		t.Fatalf("Cmd failed: %q", err)
 	}
 
@@ -267,7 +276,7 @@ func TestChangesDirsEmpty(t *testing.T) {
 	defer os.RemoveAll(src)
 	createSampleDir(t, src)
 	dst := src + "-copy"
-	err = copyDir(src, dst)
+	err = copyDir(t, src, dst)
 	assert.NilError(t, err)
 	defer os.RemoveAll(dst)
 	changes, err := ChangesDirs(dst, src)
@@ -358,7 +367,7 @@ func TestChangesDirsMutated(t *testing.T) {
 	assert.NilError(t, err)
 	createSampleDir(t, src)
 	dst := src + "-copy"
-	err = copyDir(src, dst)
+	err = copyDir(t, src, dst)
 	assert.NilError(t, err)
 	defer func() {
 		_ = os.RemoveAll(dst)
@@ -441,7 +450,7 @@ func TestApplyLayer(t *testing.T) {
 	createSampleDir(t, src)
 	defer os.RemoveAll(src)
 	dst := src + "-copy"
-	err = copyDir(src, dst)
+	err = copyDir(t, src, dst)
 	assert.NilError(t, err)
 	mutateSampleDir(t, dst)
 	defer os.RemoveAll(dst)
