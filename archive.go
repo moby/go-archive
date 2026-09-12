@@ -674,35 +674,9 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		}
 	}
 
-	var (
-		xattrErrs         []string
-		xattrPath         string
-		resolvedXattrPath bool
-	)
-	for key, value := range hdr.PAXRecords {
-		xattr, ok := strings.CutPrefix(key, paxSchilyXattr)
-		if !ok {
-			continue
-		}
-		if !resolvedXattrPath {
-			var err error
-			xattrPath, err = fsRootPath(root.Name(), dstPath)
-			if err != nil {
-				return err
-			}
-			resolvedXattrPath = true
-		}
-		// os.Root has no xattr support; use the absolute path derived from
-		// the root so the path remains bounded.
-		if err := lsetxattr(xattrPath, xattr, []byte(value), 0); err != nil {
-			if bestEffortXattrs && errors.Is(err, syscall.ENOTSUP) || errors.Is(err, syscall.EPERM) {
-				// EPERM occurs if modifying xattrs is not allowed. This can
-				// happen when running in userns with restrictions (ChromeOS).
-				xattrErrs = append(xattrErrs, err.Error())
-				continue
-			}
-			return err
-		}
+	xattrErrs, err := applyXattrs(root, dstPath, hdr.PAXRecords, bestEffortXattrs, lsetxattr)
+	if err != nil {
+		return err
 	}
 
 	if len(xattrErrs) > 0 {
@@ -740,7 +714,46 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 			return err
 		}
 	}
+
 	return nil
+}
+
+// applyXattrs applies PAX extended attributes to dstPath. It resolves parent
+// components inside root, but preserves the final component for lsetxattr's
+// no-follow semantics.
+func applyXattrs(root *os.Root, dstPath string, paxRecords map[string]string, bestEffort bool, setxattr func(string, string, []byte, int) error) ([]string, error) {
+	var (
+		xattrErrs         []string
+		xattrPath         string
+		resolvedXattrPath bool
+	)
+	for key, value := range paxRecords {
+		xattr, ok := strings.CutPrefix(key, paxSchilyXattr)
+		if !ok {
+			continue
+		}
+		if !resolvedXattrPath {
+			parent, base := filepath.Split(dstPath)
+			resolvedParent, err := fsRootPath(root.Name(), parent)
+			if err != nil {
+				return nil, err
+			}
+			xattrPath = filepath.Join(resolvedParent, base)
+			resolvedXattrPath = true
+		}
+		// os.Root has no xattr support; use the absolute path derived from
+		// the root so the path remains bounded.
+		if err := setxattr(xattrPath, xattr, []byte(value), 0); err != nil {
+			if bestEffort && errors.Is(err, syscall.ENOTSUP) || errors.Is(err, syscall.EPERM) {
+				// EPERM occurs if modifying xattrs is not allowed. This can
+				// happen when running in userns with restrictions (ChromeOS).
+				xattrErrs = append(xattrErrs, err.Error())
+				continue
+			}
+			return nil, err
+		}
+	}
+	return xattrErrs, nil
 }
 
 // Tar creates an archive from the directory at `srcPath`, and returns it as a
