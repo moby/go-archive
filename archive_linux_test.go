@@ -316,3 +316,79 @@ func TestChmodNoSymlinkFallback(t *testing.T) {
 		})
 	}
 }
+
+// TestApplyXattrsOnDanglingSymlink verifies the path passed to the xattr
+// operation preserves the symlink itself when its target has not been created.
+//
+// Regression test for https://github.com/moby/go-archive/issues/109
+// Regression test for https://github.com/moby/moby/issues/53616
+func TestApplyXattrsOnDanglingSymlink(t *testing.T) {
+	dst := t.TempDir()
+	assert.NilError(t, os.Symlink("usr/bin", filepath.Join(dst, "bin")))
+	_, err := os.Lstat(filepath.Join(dst, "usr", "bin"))
+	assert.Assert(t, os.IsNotExist(err))
+
+	root, err := os.OpenRoot(dst)
+	assert.NilError(t, err)
+	defer root.Close()
+
+	var xattrPath string
+	xattrErrs, err := applyXattrs(root, "bin", map[string]string{
+		paxSchilyXattr + "security.selinux": "system_u:object_r:container_file_t:s0",
+	}, false, func(path, attr string, data []byte, flags int) error {
+		xattrPath = path
+		assert.Equal(t, attr, "security.selinux")
+		assert.DeepEqual(t, data, []byte("system_u:object_r:container_file_t:s0"))
+		assert.Equal(t, flags, 0)
+		return nil
+	})
+	assert.NilError(t, err)
+	assert.DeepEqual(t, xattrErrs, []string(nil))
+	assert.Equal(t, xattrPath, filepath.Join(dst, "bin"))
+}
+
+// TestUntarSELinuxXattrOnDanglingSymlink verifies that xattrs are applied to a
+// symlink itself instead of its not-yet-created target.
+//
+// Regression test for https://github.com/moby/go-archive/issues/109
+// Regression test for https://github.com/moby/moby/issues/53616
+func TestUntarSELinuxXattrOnDanglingSymlink(t *testing.T) {
+	const (
+		xattr      = "security.selinux"
+		xattrValue = "system_u:object_r:container_file_t:s0"
+	)
+
+	probe := filepath.Join(t.TempDir(), "probe")
+	assert.NilError(t, os.Symlink("usr/bin", probe))
+	if err := lsetxattr(probe, xattr, []byte(xattrValue), 0); err != nil {
+		t.Skipf("cannot set %q xattrs on symlinks: %v", xattr, err)
+	}
+
+	var archive bytes.Buffer
+	tw := tar.NewWriter(&archive)
+	for _, hdr := range []tar.Header{
+		{
+			Name:     "bin",
+			Typeflag: tar.TypeSymlink,
+			Linkname: "usr/bin",
+			Mode:     0o777,
+			PAXRecords: map[string]string{
+				paxSchilyXattr + xattr: xattrValue,
+			},
+		},
+		{Name: "usr/", Typeflag: tar.TypeDir, Mode: 0o755},
+		{Name: "usr/bin/", Typeflag: tar.TypeDir, Mode: 0o755},
+	} {
+		assert.NilError(t, tw.WriteHeader(&hdr))
+	}
+	assert.NilError(t, tw.Close())
+
+	dst := t.TempDir()
+	assert.NilError(t, Untar(bytes.NewReader(archive.Bytes()), dst, &TarOptions{
+		NoLchown: true,
+	}))
+
+	value, err := lgetxattr(filepath.Join(dst, "bin"), xattr)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, value, []byte(xattrValue))
+}
