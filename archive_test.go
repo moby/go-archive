@@ -598,6 +598,7 @@ func TestTypeXGlobalHeaderDoesNotFail(t *testing.T) {
 // treated as opaque values and are preserved verbatim rather than converted to
 // platform-native path syntax during extraction.
 func TestCreateTarFileSymlinkPreservesLinkname(t *testing.T) {
+	t.Skip("FIXME: failing due to breaking change in go1.27: https://github.com/moby/go-archive/pull/118#issuecomment-5426940532")
 	tests := []struct {
 		name     string
 		linkname string
