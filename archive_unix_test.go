@@ -645,6 +645,116 @@ func TestUnpackRejectsRelativeEscapeBeforeAbsoluteSymlink(t *testing.T) {
 	}
 }
 
+// An escaping relative symlink must be rejected even when it is reached through
+// another symlink, so that path resolution never depends on symlinks outside
+// the extraction root.
+func TestUnpackRejectsRelativeEscapeThroughIntermediateSymlink(t *testing.T) {
+	buf := &bytes.Buffer{}
+	tw := tar.NewWriter(buf)
+	assert.NilError(t, tw.WriteHeader(&tar.Header{
+		Name:     "a/absolute/file",
+		Typeflag: tar.TypeReg,
+		Mode:     0o644,
+	}))
+	assert.NilError(t, tw.Close())
+
+	unpackers := []struct {
+		name   string
+		unpack func(dest string, r io.Reader) error
+	}{
+		{
+			name: "Unpack",
+			unpack: func(dest string, r io.Reader) error {
+				return Unpack(r, dest, &TarOptions{NoLchown: true})
+			},
+		},
+		{
+			name: "UnpackLayer",
+			unpack: func(dest string, r io.Reader) error {
+				_, err := UnpackLayer(dest, r, &TarOptions{NoLchown: true})
+				return err
+			},
+		},
+	}
+
+	for _, unpacker := range unpackers {
+		t.Run(unpacker.name, func(t *testing.T) {
+			// Resolving "a/absolute" must observe "x/escape" instead of letting
+			// the host resolve it, which would find "absolute" outside dest and
+			// redirect the entry through it into dest/target.
+			base := t.TempDir()
+			dest := filepath.Join(base, "dest")
+			assert.NilError(t, os.MkdirAll(filepath.Join(dest, "x"), 0o755))
+			assert.NilError(t, os.Mkdir(filepath.Join(dest, "target"), 0o755))
+			assert.NilError(t, os.Symlink("x/escape", filepath.Join(dest, "a")))
+			assert.NilError(t, os.Symlink("../..", filepath.Join(dest, "x", "escape")))
+			assert.NilError(t, os.Symlink("/target", filepath.Join(base, "absolute")))
+
+			err := unpacker.unpack(dest, bytes.NewReader(buf.Bytes()))
+			assert.Check(t, isPathEscapes(err), "expected path-escape error, got: %v", err)
+
+			_, err = os.Lstat(filepath.Join(dest, "target", "file"))
+			assert.Check(t, os.IsNotExist(err), "archive wrote through rejected path: %v", err)
+		})
+	}
+}
+
+// A chain of relative symlinks that stays inside the extraction root must be
+// followed, including when it ends in an absolute symlink.
+func TestUntarThroughNestedRelativeSymlinks(t *testing.T) {
+	const content = "content"
+
+	buf := &bytes.Buffer{}
+	tw := tar.NewWriter(buf)
+	assert.NilError(t, tw.WriteHeader(&tar.Header{
+		Name:     "a/run/file",
+		Typeflag: tar.TypeReg,
+		Mode:     0o644,
+		Size:     int64(len(content)),
+	}))
+	_, err := io.WriteString(tw, content)
+	assert.NilError(t, err)
+	assert.NilError(t, tw.Close())
+
+	unpackers := []struct {
+		name   string
+		unpack func(dest string, r io.Reader) error
+	}{
+		{
+			name: "Unpack",
+			unpack: func(dest string, r io.Reader) error {
+				return Unpack(r, dest, &TarOptions{NoLchown: true})
+			},
+		},
+		{
+			name: "UnpackLayer",
+			unpack: func(dest string, r io.Reader) error {
+				_, err := UnpackLayer(dest, r, &TarOptions{NoLchown: true})
+				return err
+			},
+		},
+	}
+
+	for _, unpacker := range unpackers {
+		t.Run(unpacker.name, func(t *testing.T) {
+			// dest/a -> x/inner -> ../var, and dest/var/run -> /run, so
+			// "a/run/file" resolves to dest/run/file.
+			dest := t.TempDir()
+			assert.NilError(t, os.Mkdir(filepath.Join(dest, "x"), 0o755))
+			assert.NilError(t, os.Mkdir(filepath.Join(dest, "var"), 0o755))
+			assert.NilError(t, os.Symlink("x/inner", filepath.Join(dest, "a")))
+			assert.NilError(t, os.Symlink("../var", filepath.Join(dest, "x", "inner")))
+			assert.NilError(t, os.Symlink("/run", filepath.Join(dest, "var", "run")))
+
+			assert.NilError(t, unpacker.unpack(dest, bytes.NewReader(buf.Bytes())))
+
+			actual, err := os.ReadFile(filepath.Join(dest, "run", "file"))
+			assert.NilError(t, err)
+			assert.DeepEqual(t, actual, []byte(content))
+		})
+	}
+}
+
 // Absolute symlinks are common in container root filesystems and may come from
 // a lower layer. Later layers must resolve files and hardlink sources through
 // those symlinks relative to the extraction root, not the host root.

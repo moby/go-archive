@@ -20,6 +20,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var errTooManyLinks = errors.New("too many links")
@@ -40,103 +41,90 @@ func fsRootPath(root, path string) (string, error) {
 	return result.path, nil
 }
 
+// resolveFSRootPath resolves path inside root with chroot-like semantics:
+// absolute symlink targets are resolved from root, and ".." never leaves root.
+// Components that do not exist are kept unchanged so callers can create them.
+//
+// The path is walked one component at a time, and each component is joined to
+// the already-resolved, symlink-free prefix. This keeps os.Lstat and
+// os.Readlink from following a symlink in an intermediate component, which
+// would hide that symlink from the escape bookkeeping below.
 func resolveFSRootPath(root, path string) (fsRootPathResult, error) {
 	result := fsRootPathResult{path: root}
 	if path == "" {
 		return result, nil
 	}
-	var linksWalked int // to protect against cycles
-	for {
-		i := linksWalked
-		newpath, err := walkLinks(root, path, &linksWalked, &result)
+
+	var (
+		resolved    string // symlink-free path, relative to root
+		linksWalked int    // to protect against cycles
+	)
+
+	// todo holds the components that are not resolved yet, in reverse order.
+	todo := pushPathComponents(nil, path)
+	for len(todo) > 0 {
+		component := todo[len(todo)-1]
+		todo = todo[:len(todo)-1]
+
+		switch component {
+		case ".":
+			continue
+		case "..":
+			// resolved contains no symlink, so its parent is the lexical one.
+			if resolved = filepath.Dir(resolved); resolved == "." {
+				resolved = ""
+			}
+			continue
+		}
+
+		next := filepath.Join(resolved, component)
+		realPath := filepath.Join(root, next)
+		fi, err := os.Lstat(realPath)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return fsRootPathResult{}, err
+			}
+			// The component does not exist yet; treat it as non-symlink.
+			resolved = next
+			continue
+		}
+		if fi.Mode()&os.ModeSymlink == 0 {
+			resolved = next
+			continue
+		}
+
+		if linksWalked++; linksWalked > 255 {
+			return fsRootPathResult{}, errTooManyLinks
+		}
+		target, err := os.Readlink(realPath)
 		if err != nil {
 			return fsRootPathResult{}, err
 		}
-		path = newpath
-		if i == linksWalked {
-			newpath = filepath.Join(string(os.PathSeparator), newpath)
-			if path == newpath {
-				result.path = filepath.Join(root, newpath)
-				return result, nil
+		if filepath.IsAbs(target) {
+			result.followedAbsoluteLink = true
+			resolved = "" // an absolute target is resolved from root
+		} else if !result.followedAbsoluteLink {
+			// Record an escape before a later absolute link can make the original
+			// os.Root error appear eligible for resolve-in-root fallback.
+			if joined := filepath.Join(resolved, target); joined != "." && !filepath.IsLocal(joined) {
+				result.relativeEscapeBeforeAbsolute = true
 			}
-			path = newpath
 		}
+		todo = pushPathComponents(todo, target)
 	}
+
+	result.path = filepath.Join(root, resolved)
+	return result, nil
 }
 
-func walkLink(root, path string, linksWalked *int, result *fsRootPathResult) (newpath string, islink bool, err error) {
-	if *linksWalked > 255 {
-		return "", false, errTooManyLinks
+// pushPathComponents appends the components of path to todo in reverse order,
+// so that the first component is popped from the end of todo first.
+func pushPathComponents(todo []string, path string) []string {
+	components := strings.FieldsFunc(path, func(r rune) bool {
+		return r == '/' || r == filepath.Separator
+	})
+	for i := len(components) - 1; i >= 0; i-- {
+		todo = append(todo, components[i])
 	}
-
-	path = filepath.Join(string(os.PathSeparator), path)
-	if path == string(os.PathSeparator) {
-		return path, false, nil
-	}
-	realPath := filepath.Join(root, path)
-
-	fi, err := os.Lstat(realPath)
-	if err != nil {
-		// If path does not yet exist, treat as non-symlink
-		if os.IsNotExist(err) {
-			return path, false, nil
-		}
-		return "", false, err
-	}
-	if fi.Mode()&os.ModeSymlink == 0 {
-		return path, false, nil
-	}
-	newpath, err = os.Readlink(realPath)
-	if err != nil {
-		return "", false, err
-	}
-	if filepath.IsAbs(newpath) {
-		result.followedAbsoluteLink = true
-	} else if !result.followedAbsoluteLink {
-		// Record an escape before a later absolute link can make the original
-		// os.Root error appear eligible for resolve-in-root fallback.
-		relativeDir, err := filepath.Rel(string(os.PathSeparator), filepath.Dir(path))
-		if err != nil {
-			return "", false, err
-		}
-
-		resolved := filepath.Join(relativeDir, newpath)
-		if resolved != "." && !filepath.IsLocal(resolved) {
-			result.relativeEscapeBeforeAbsolute = true
-		}
-	}
-
-	*linksWalked++
-	return newpath, true, nil
-}
-
-func walkLinks(root, path string, linksWalked *int, result *fsRootPathResult) (string, error) {
-	switch dir, file := filepath.Split(path); {
-	case dir == "":
-		newpath, _, err := walkLink(root, file, linksWalked, result)
-		return newpath, err
-	case file == "":
-		if os.IsPathSeparator(dir[len(dir)-1]) {
-			if dir == string(os.PathSeparator) {
-				return dir, nil
-			}
-			return walkLinks(root, dir[:len(dir)-1], linksWalked, result)
-		}
-		newpath, _, err := walkLink(root, dir, linksWalked, result)
-		return newpath, err
-
-	default:
-		newdir, err := walkLinks(root, dir, linksWalked, result)
-		if err != nil {
-			return "", err
-		}
-		newpath, islink, err := walkLink(root, filepath.Join(newdir, file), linksWalked, result)
-		if err != nil {
-			return "", err
-		}
-		if !islink || filepath.IsAbs(newpath) {
-			return newpath, nil
-		}
-		return filepath.Join(newdir, newpath), nil
-	}
+	return todo
 }
