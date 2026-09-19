@@ -595,6 +595,104 @@ func TestUntarThroughAbsoluteSymlink(t *testing.T) {
 	}
 }
 
+func TestResolveFSRootPathParentTraversal(t *testing.T) {
+	dest := t.TempDir()
+	assert.NilError(t, os.MkdirAll(filepath.Join(dest, "real", "child"), 0o755))
+	assert.NilError(t, os.WriteFile(filepath.Join(dest, "regular"), nil, 0o644))
+	for name, target := range map[string]string{
+		"alias": "real/child", "escape": "..", "absolute": "/target", "loop": "loop",
+	} {
+		assert.NilError(t, os.Symlink(target, filepath.Join(dest, name)))
+	}
+	for _, tc := range []struct {
+		path     string
+		want     string
+		absolute bool
+		escape   bool
+		err      error
+	}{
+		{path: "alias/../out", want: "real/out"},
+		{path: "missing/../alias/../out", want: "real/out"},
+		{path: "alias/../../real/out", want: "real/out"},
+		{path: "escape/../absolute/out", want: "target/out", absolute: true, escape: true},
+		{path: "missing/../escape/../absolute/out", want: "target/out", absolute: true, escape: true},
+		{path: "absolute/../../out", want: "out", absolute: true},
+		{path: "regular/../out", err: syscall.ENOTDIR},
+		{path: "loop/../out", err: errTooManyLinks},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			result, err := resolveFSRootPath(dest, tc.path)
+			if tc.err != nil {
+				assert.Check(t, errors.Is(err, tc.err), "expected %v, got %v", tc.err, err)
+				return
+			}
+			assert.NilError(t, err)
+			assert.Equal(t, result.path, filepath.Join(dest, tc.want))
+			assert.Equal(t, result.followedAbsoluteLink, tc.absolute)
+			assert.Equal(t, result.relativeEscapeBeforeAbsolute, tc.escape)
+		})
+	}
+}
+
+func TestUnpackResolvesSymlinksBeforeParentTraversal(t *testing.T) {
+	unpackers := []struct {
+		name   string
+		unpack func(io.Reader, string) error
+	}{
+		{name: "Unpack", unpack: func(r io.Reader, dest string) error {
+			return Unpack(r, dest, &TarOptions{NoLchown: true})
+		}},
+		{name: "UnpackLayer", unpack: func(r io.Reader, dest string) error {
+			_, err := UnpackLayer(dest, r, &TarOptions{NoLchown: true})
+			return err
+		}},
+	}
+	for _, unpacker := range unpackers {
+		for _, target := range []string{"alias/../out", "/alias/../out", "missing/../alias/../out", "/alias/../../real/out"} {
+			for _, suffix := range []string{"file", "new/child/file"} {
+				t.Run(unpacker.name+"/"+target+"/"+suffix, func(t *testing.T) {
+					dest := t.TempDir()
+					assert.NilError(t, os.MkdirAll(filepath.Join(dest, "real", "child"), 0o755))
+					assert.NilError(t, os.Mkdir(filepath.Join(dest, "real", "out"), 0o755))
+					assert.NilError(t, os.Symlink("real/child", filepath.Join(dest, "alias")))
+					assert.NilError(t, os.Symlink(target, filepath.Join(dest, "link")))
+
+					buf := &bytes.Buffer{}
+					tw := tar.NewWriter(buf)
+					assert.NilError(t, tw.WriteHeader(&tar.Header{
+						Name:     "link/" + suffix,
+						Typeflag: tar.TypeReg,
+						Mode:     0o644,
+						Size:     7,
+					}))
+					_, err := io.WriteString(tw, "content")
+					assert.NilError(t, err)
+					assert.NilError(t, tw.WriteHeader(&tar.Header{
+						Name:     "hardlink",
+						Typeflag: tar.TypeLink,
+						Linkname: "link/" + suffix,
+						Mode:     0o644,
+					}))
+					assert.NilError(t, tw.Close())
+
+					assert.NilError(t, unpacker.unpack(buf, dest))
+					file := filepath.Join(dest, "real", "out", suffix)
+					dt, err := os.ReadFile(file)
+					assert.NilError(t, err)
+					assert.Equal(t, string(dt), "content")
+					fi, err := os.Stat(file)
+					assert.NilError(t, err)
+					hi, err := os.Stat(filepath.Join(dest, "hardlink"))
+					assert.NilError(t, err)
+					assert.Check(t, os.SameFile(fi, hi))
+					_, err = os.Lstat(filepath.Join(dest, "out"))
+					assert.Check(t, os.IsNotExist(err), "archive wrote to the lexically cleaned path: %v", err)
+				})
+			}
+		}
+	}
+}
+
 // A relative symlink must not escape the extraction root merely because path
 // resolution encounters an absolute symlink afterward.
 func TestUnpackRejectsRelativeEscapeBeforeAbsoluteSymlink(t *testing.T) {
@@ -635,6 +733,60 @@ func TestUnpackRejectsRelativeEscapeBeforeAbsoluteSymlink(t *testing.T) {
 				"/target",
 				filepath.Join(dest, "absolute"),
 			))
+
+			err := unpacker.unpack(dest, bytes.NewReader(buf.Bytes()))
+			assert.Check(t, isPathEscapes(err), "expected path-escape error, got: %v", err)
+
+			_, err = os.Lstat(filepath.Join(dest, "target", "file"))
+			assert.Check(t, os.IsNotExist(err), "archive wrote through rejected path: %v", err)
+		})
+	}
+}
+
+// An escaping relative symlink must be rejected even when it is reached through
+// another symlink, so that path resolution never depends on symlinks outside
+// the extraction root.
+func TestUnpackRejectsRelativeEscapeThroughIntermediateSymlink(t *testing.T) {
+	buf := &bytes.Buffer{}
+	tw := tar.NewWriter(buf)
+	assert.NilError(t, tw.WriteHeader(&tar.Header{
+		Name:     "a/absolute/file",
+		Typeflag: tar.TypeReg,
+		Mode:     0o644,
+	}))
+	assert.NilError(t, tw.Close())
+
+	unpackers := []struct {
+		name   string
+		unpack func(dest string, r io.Reader) error
+	}{
+		{
+			name: "Unpack",
+			unpack: func(dest string, r io.Reader) error {
+				return Unpack(r, dest, &TarOptions{NoLchown: true})
+			},
+		},
+		{
+			name: "UnpackLayer",
+			unpack: func(dest string, r io.Reader) error {
+				_, err := UnpackLayer(dest, r, &TarOptions{NoLchown: true})
+				return err
+			},
+		},
+	}
+
+	for _, unpacker := range unpackers {
+		t.Run(unpacker.name, func(t *testing.T) {
+			// Resolving "a/absolute" must observe "x/escape" instead of letting
+			// the host resolve it, which would find "absolute" outside dest and
+			// redirect the entry through it into dest/target.
+			base := t.TempDir()
+			dest := filepath.Join(base, "dest")
+			assert.NilError(t, os.MkdirAll(filepath.Join(dest, "x"), 0o755))
+			assert.NilError(t, os.Mkdir(filepath.Join(dest, "target"), 0o755))
+			assert.NilError(t, os.Symlink("x/escape", filepath.Join(dest, "a")))
+			assert.NilError(t, os.Symlink("../..", filepath.Join(dest, "x", "escape")))
+			assert.NilError(t, os.Symlink("/target", filepath.Join(base, "absolute")))
 
 			err := unpacker.unpack(dest, bytes.NewReader(buf.Bytes()))
 			assert.Check(t, isPathEscapes(err), "expected path-escape error, got: %v", err)
