@@ -850,6 +850,44 @@ func TestUntarParentTraversalContained(t *testing.T) {
 	}
 }
 
+func TestUntarDestinationRootRetainsIdentityAfterRename(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not permit renaming an open directory")
+	}
+
+	base := t.TempDir()
+	dest := filepath.Join(base, "dest")
+	moved := filepath.Join(base, "moved")
+	assert.NilError(t, os.Mkdir(dest, 0o755))
+	root, err := os.OpenRoot(dest)
+	assert.NilError(t, err)
+	defer root.Close()
+	assert.NilError(t, os.Rename(dest, moved))
+	assert.NilError(t, os.Mkdir(dest, 0o755))
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	content := []byte("stable root")
+	assert.NilError(t, tw.WriteHeader(&tar.Header{
+		Name:     "file",
+		Typeflag: tar.TypeReg,
+		Mode:     0o644,
+		Size:     int64(len(content)),
+	}))
+	_, err = tw.Write(content)
+	assert.NilError(t, err)
+	assert.NilError(t, tw.Close())
+
+	assert.NilError(t, Untar(&buf, ".", &TarOptions{NoLchown: true, DestinationRoot: root}))
+	actual, err := os.ReadFile(filepath.Join(moved, "file"))
+	assert.NilError(t, err)
+	assert.DeepEqual(t, actual, content)
+	_, err = os.Stat(filepath.Join(dest, "file"))
+	assert.Assert(t, os.IsNotExist(err))
+	_, err = root.Stat("file")
+	assert.NilError(t, err, "Untar must not close DestinationRoot")
+}
+
 // TestUntarSiblingPrefixContained verifies that a symlink whose target is a
 // sibling directory sharing the destination's path prefix (dest "base/dest",
 // sibling "base/dest-evil") cannot be written through. Regression test for the
