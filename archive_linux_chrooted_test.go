@@ -78,3 +78,68 @@ func TestChmodNoSymlinkFallbackInChrootWithoutProc(t *testing.T) {
 	assert.NilError(t, err)
 	assert.NilError(t, testErr)
 }
+
+func TestApplyXattrsInChrootWithoutProc(t *testing.T) {
+	skip.If(t, os.Getuid() != 0, "test requires root")
+	skip.If(t, userns.RunningInUserNS(), "test requires the initial user namespace")
+
+	opts, cleanup, err := WithProcSelfFD(nil)
+	assert.NilError(t, err)
+	defer cleanup()
+
+	for _, tc := range []struct {
+		name string
+		opts *TarOptions
+	}{
+		{name: "direct", opts: &TarOptions{}},
+		{name: "prepared", opts: opts},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dest := t.TempDir()
+			assert.NilError(t, os.WriteFile(filepath.Join(dest, "file"), nil, 0o200))
+			assert.NilError(t, os.Symlink("missing", filepath.Join(dest, "link")))
+
+			done := make(chan error, 1)
+			err := unshare.Go(unix.CLONE_FS|unix.CLONE_NEWNS, func() error {
+				if err := mount.MakeRSlave("/"); err != nil {
+					return err
+				}
+				return mounttree.SwitchRoot(dest)
+			}, func() {
+				root, err := os.OpenRoot("/")
+				if err != nil {
+					done <- err
+					return
+				}
+				defer root.Close()
+				if _, err := os.Stat("/proc/self/fd"); err == nil {
+					done <- errors.New("procfs unexpectedly available")
+					return
+				} else if !errors.Is(err, os.ErrNotExist) {
+					done <- err
+					return
+				}
+				if _, err := applyXattrs(root, "file", map[string]string{paxSchilyXattr + "user.archive": "value"}, false, tc.opts.internalOptions); err != nil {
+					done <- err
+					return
+				}
+				// An ignored EPERM proves the syscall reached the symlink itself.
+				ignored, err := applyXattrs(root, "link", map[string]string{paxSchilyXattr + "user.archive": "value"}, false, tc.opts.internalOptions)
+				if err != nil {
+					done <- err
+					return
+				}
+				if len(ignored) != 1 {
+					done <- fmt.Errorf("symlink xattr: got %d ignored errors, want 1", len(ignored))
+					return
+				}
+				done <- nil
+			})
+			assert.NilError(t, err)
+			assert.NilError(t, <-done)
+			value, err := lgetxattr(filepath.Join(dest, "file"), "user.archive")
+			assert.NilError(t, err)
+			assert.Equal(t, string(value), "value")
+		})
+	}
+}
