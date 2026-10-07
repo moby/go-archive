@@ -500,10 +500,9 @@ func TestHandleTarTypeBlockCharFifoDeviceRange(t *testing.T) {
 				Devminor: tc.devminor,
 			}
 
-			// A nil root is sufficient here: invalid device numbers must
+			// Nil filesystem handles are sufficient here: invalid device numbers must
 			// be rejected before attempting any filesystem operation.
-			var root *os.Root
-			err := handleTarTypeBlockCharFifo(root, hdr, "dev")
+			err := handleTarTypeBlockCharFifo(nil, nil, hdr, "dev")
 			if !errors.Is(err, errInvalidArchive) {
 				t.Fatalf("expected errInvalidArchive for %d:%d, got %v", tc.devmajor, tc.devminor, err)
 			}

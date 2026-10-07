@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 
+	"github.com/tonistiigi/fsutil"
 	"golang.org/x/sys/unix"
 )
 
@@ -38,10 +39,11 @@ func lgetxattr(filePath string, attr string) ([]byte, error) {
 	return dest[:sz], nil
 }
 
-// lsetxattr sets the value of the extended attribute identified by attr
-// and associated with the given path in the file system.
-func lsetxattr(filePath string, attr string, data []byte, flags int) error {
-	return wrapPathError("lsetxattr", filePath, attr, unix.Lsetxattr(filePath, attr, data, flags))
+func setRootEntryXattr(entry *fsutil.RootEntry, attr string, data []byte, flags int) error {
+	if err := entry.LSetxattr(attr, data, flags); err != nil {
+		return wrapPathError("lsetxattr", entry.Path(), attr, err)
+	}
+	return nil
 }
 
 func wrapPathError(op, filePath, attr string, err error) error {

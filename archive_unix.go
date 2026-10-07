@@ -11,8 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/moby/go-archive/internal/archiveoptions"
+	"github.com/tonistiigi/fsutil"
 	"golang.org/x/sys/unix"
 )
 
@@ -60,7 +62,7 @@ func getFileUIDGID(stat any) (int, int, error) {
 //
 // Creating device nodes is not supported when running in a user namespace,
 // produces a [syscall.EPERM] in most cases.
-func handleTarTypeBlockCharFifo(root *os.Root, hdr *tar.Header, dstPath string) error {
+func handleTarTypeBlockCharFifo(root *os.Root, entry *fsutil.RootEntry, hdr *tar.Header, dstPath string) error {
 	mode := uint32(hdr.Mode & 0o7777)
 	switch hdr.Typeflag {
 	case tar.TypeBlock:
@@ -81,14 +83,13 @@ func handleTarTypeBlockCharFifo(root *os.Root, hdr *tar.Header, dstPath string) 
 		return fmt.Errorf("device number %d:%d for %q out of range: %w", hdr.Devmajor, hdr.Devminor, hdr.Name, errInvalidArchive)
 	}
 
-	// Prefer mknodat; fall back to a bounded path where unavailable.
-	return mknodInRoot(root, dstPath, mode, unix.Mkdev(uint32(hdr.Devmajor), uint32(hdr.Devminor)))
+	return mknodRootEntry(root, entry, dstPath, mode, unix.Mkdev(uint32(hdr.Devmajor), uint32(hdr.Devminor)))
 }
 
 // handleLChmod applies the mode from hdrInfo to dstPath within root, skipping
 // symlinks (there is no lchmod). For hardlinks, the mode is applied only when
 // the link target is itself not a symlink.
-func handleLChmod(root *os.Root, dstPath string, hardlinkTarget string, hdr *tar.Header, hdrInfo os.FileInfo, opts *archiveoptions.Options) error {
+func handleLChmod(root *os.Root, entry *fsutil.RootEntry, hardlinkTarget string, hdr *tar.Header, hdrInfo os.FileInfo, opts *archiveoptions.Options) error {
 	switch hdr.Typeflag {
 	case tar.TypeSymlink:
 		return nil
@@ -100,24 +101,24 @@ func handleLChmod(root *os.Root, dstPath string, hardlinkTarget string, hdr *tar
 		if err != nil || fi.Mode()&os.ModeSymlink != 0 {
 			return nil
 		}
-		return chmodNoSymlink(root, dstPath, hdrInfo.Mode(), opts)
+		return chmodNoSymlink(entry, hdrInfo.Mode(), opts)
 
 	default:
-		return chmodNoSymlink(root, dstPath, hdrInfo.Mode(), opts)
+		return chmodNoSymlink(entry, hdrInfo.Mode(), opts)
 	}
 }
 
 // chmodNoSymlink applies mode to a non-symlink entry.
 //
 // Callers must have already excluded symlink entries.
-func chmodNoSymlink(root *os.Root, name string, mode os.FileMode, opts *archiveoptions.Options) error {
-	parent, err := root.OpenFile(filepath.Dir(name), os.O_RDONLY, 0)
+func chmodNoSymlink(entry *fsutil.RootEntry, mode os.FileMode, opts *archiveoptions.Options) error {
+	parent, err := entry.Parent()
 	if err != nil {
 		return err
 	}
-	defer parent.Close()
 
-	base := filepath.Base(name)
+	name := entry.Path()
+	base := entry.Base()
 	perm := fileModeToPerm(mode)
 	// #nosec G115 -- ignore integer overflow conversion for parent.Fd
 	if err := unix.Fchmodat(int(parent.Fd()), base, perm, unix.AT_SYMLINK_NOFOLLOW); err == nil {
@@ -128,6 +129,18 @@ func chmodNoSymlink(root *os.Root, name string, mode os.FileMode, opts *archiveo
 
 	// Fallback for systems that cannot perform fchmodat with AT_SYMLINK_NOFOLLOW.
 	return chmodNoSymlinkFallback(int(parent.Fd()), base, name, perm, opts) // #nosec G115 -- ignore integer overflow conversion for parent.Fd
+}
+
+func openRootEntryFile(_ *os.Root, entry *fsutil.RootEntry, _ string, flag int, mode os.FileMode) (*os.File, error) {
+	return entry.OpenFileNoFollow(flag, mode)
+}
+
+func chtimesRootEntry(_ *os.Root, entry *fsutil.RootEntry, _ string, atime, mtime time.Time) error {
+	return entry.ChtimesNoFollow(atime, mtime)
+}
+
+func lchtimesRootEntry(_ *os.Root, entry *fsutil.RootEntry, _ string, atime, mtime time.Time) error {
+	return entry.ChtimesNoFollow(atime, mtime)
 }
 
 // fileModeToPerm returns the subset of an os.FileMode that can be applied

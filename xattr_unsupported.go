@@ -2,10 +2,12 @@
 
 package archive
 
+import "github.com/tonistiigi/fsutil"
+
 func lgetxattr(path string, attr string) ([]byte, error) {
 	return nil, nil
 }
 
-func lsetxattr(path string, attr string, data []byte, flags int) error {
+func setRootEntryXattr(entry *fsutil.RootEntry, attr string, data []byte, flags int) error {
 	return nil
 }
