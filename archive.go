@@ -84,6 +84,7 @@ type (
 		// DestinationRoot constrains extraction to an already-open directory.
 		// When set, extraction paths are interpreted relative to this root. The
 		// caller retains ownership of DestinationRoot.
+		// On macOS, device and FIFO creation is unsupported.
 		DestinationRoot *os.Root
 
 		// internalOptions contains options for use by packages within this module.
@@ -568,6 +569,8 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 	// but for os.Foo() calls we need the mode converted to os.FileMode,
 	// so use hdrInfo.Mode() (they differ for e.g. setuid bits)
 	hdrInfo := hdr.FileInfo()
+	// macOS has no mknodat; its pathname fallback cannot preserve root identity.
+	rootMknodUnsupported := opts != nil && opts.DestinationRoot != nil && runtime.GOOS == "darwin"
 
 	var hardlinkTarget string
 	if hdr.Typeflag == tar.TypeLink {
@@ -612,11 +615,17 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 			log.G(context.TODO()).WithFields(log.Fields{"path": dstPath, "type": hdr.Typeflag}).Debug("skipping device nodes in a userns")
 			return nil
 		}
+		if rootMknodUnsupported {
+			return fmt.Errorf("device creation with DestinationRoot: %w", syscall.ENOTSUP)
+		}
 		if err := handleTarTypeBlockCharFifo(root, hdr, dstPath); err != nil {
 			return err
 		}
 
 	case tar.TypeFifo:
+		if rootMknodUnsupported {
+			return fmt.Errorf("FIFO creation with DestinationRoot: %w", syscall.ENOTSUP)
+		}
 		if err := handleTarTypeBlockCharFifo(root, hdr, dstPath); err != nil {
 			if inUserns && errors.Is(err, syscall.EPERM) {
 				// In most cases, cannot create a fifo if running in user namespace
