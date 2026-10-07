@@ -1,0 +1,12 @@
+Copyright The Moby Go-Archive Authors.
+Copyright 2012-2017 Docker, Inc.
+
+This package includes code derived from the Go standard library.
+https://github.com/golang/go/tree/go1.26.0/src/internal/syscall/windows
+
+The original Go source code is:
+
+    Copyright 2009 The Go Authors. All rights reserved.
+
+The Go source code is governed by a BSD-style license that can be found in
+internal/windows/LICENSE and internal/windows/PATENTS.
