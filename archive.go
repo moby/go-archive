@@ -87,6 +87,7 @@ type (
 		// An empty dest or "." extracts directly into the root.
 		// The caller retains ownership and must keep the root open during extraction.
 		// Extraction closes only roots it opens for nested destinations.
+		// Layer extraction and chrootarchive do not support this option.
 		// On macOS, device and FIFO creation is unsupported.
 		// Outside Linux, extended attributes are unsupported on hardlinks,
 		// symlinks, devices, and FIFOs.

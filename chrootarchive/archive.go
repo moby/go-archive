@@ -53,6 +53,9 @@ func UntarUncompressed(tarArchive io.Reader, dest string, options *archive.TarOp
 
 // Handler for teasing out the automatic decompression
 func untarHandler(tarArchive io.Reader, dest string, options *archive.TarOptions, decompress bool, root string) error {
+	if options != nil && options.DestinationRoot != nil {
+		return errors.New("DestinationRoot is not supported by chrootarchive")
+	}
 	if tarArchive == nil {
 		return errors.New("empty archive")
 	}

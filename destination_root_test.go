@@ -9,11 +9,12 @@ import (
 	"testing"
 
 	archive "github.com/moby/go-archive"
+	"github.com/moby/go-archive/chrootarchive"
 	"gotest.tools/v3/assert"
 )
 
-// TestDestinationRootContract checks root-relative destinations and rejects paths
-// outside the caller-owned directory boundary.
+// TestDestinationRootContract checks root-relative destinations and rejects
+// extraction APIs that would otherwise silently ignore the directory boundary.
 func TestDestinationRootContract(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
@@ -22,12 +23,30 @@ func TestDestinationRootContract(t *testing.T) {
 	assert.NilError(t, tw.Close())
 
 	for _, api := range []struct {
-		name   string
-		unpack func(io.Reader, string, *archive.TarOptions) error
+		name      string
+		unpack    func(io.Reader, string, *archive.TarOptions) error
+		supported bool
 	}{
-		{name: "Unpack", unpack: archive.Unpack},
-		{name: "Untar", unpack: archive.Untar},
-		{name: "UntarUncompressed", unpack: archive.UntarUncompressed},
+		{name: "Unpack", unpack: archive.Unpack, supported: true},
+		{name: "Untar", unpack: archive.Untar, supported: true},
+		{name: "UntarUncompressed", unpack: archive.UntarUncompressed, supported: true},
+		{name: "UnpackLayer", unpack: func(r io.Reader, dest string, opts *archive.TarOptions) error {
+			_, err := archive.UnpackLayer(dest, r, opts)
+			return err
+		}},
+		{name: "ApplyUncompressedLayer", unpack: func(r io.Reader, dest string, opts *archive.TarOptions) error {
+			_, err := archive.ApplyUncompressedLayer(dest, r, opts)
+			return err
+		}},
+		{name: "chrootarchive.Untar", unpack: chrootarchive.Untar},
+		{name: "chrootarchive.UntarUncompressed", unpack: chrootarchive.UntarUncompressed},
+		{name: "chrootarchive.UntarWithRoot", unpack: func(r io.Reader, dest string, opts *archive.TarOptions) error {
+			return chrootarchive.UntarWithRoot(r, dest, opts, dest)
+		}},
+		{name: "chrootarchive.ApplyUncompressedLayer", unpack: func(r io.Reader, dest string, opts *archive.TarOptions) error {
+			_, err := chrootarchive.ApplyUncompressedLayer(dest, r, opts)
+			return err
+		}},
 	} {
 		t.Run(api.name, func(t *testing.T) {
 			t.Parallel()
@@ -54,6 +73,8 @@ func TestDestinationRootContract(t *testing.T) {
 				t.Run(tc.name, func(t *testing.T) {
 					err := api.unpack(bytes.NewReader(buf.Bytes()), tc.dest, &archive.TarOptions{NoLchown: true, DestinationRoot: root})
 					switch {
+					case !api.supported:
+						assert.ErrorContains(t, err, "DestinationRoot is not supported")
 					case !tc.valid:
 						assert.Assert(t, err != nil, "destination must be an existing directory within DestinationRoot")
 					default:

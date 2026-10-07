@@ -17,10 +17,15 @@ import (
 	"github.com/moby/go-archive/compression"
 )
 
+var errLayerDestinationRoot = errors.New("DestinationRoot is not supported by layer extraction")
+
 // UnpackLayer unpack `layer` to a `dest`. The stream `layer` can be
 // compressed or uncompressed.
 // Returns the size in bytes of the contents of the layer.
 func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64, err error) {
+	if options != nil && options.DestinationRoot != nil {
+		return 0, errLayerDestinationRoot
+	}
 	root, err := os.OpenRoot(dest)
 	if err != nil {
 		return 0, err
@@ -230,6 +235,10 @@ func ApplyLayer(dest string, layer io.Reader) (int64, error) {
 // can only be uncompressed.
 // Returns the size in bytes of the contents of the layer.
 func ApplyUncompressedLayer(dest string, layer io.Reader, options *TarOptions) (int64, error) {
+	// Reject before applyLayerHandler changes the process-wide umask.
+	if options != nil && options.DestinationRoot != nil {
+		return 0, errLayerDestinationRoot
+	}
 	return applyLayerHandler(dest, layer, options, false)
 }
 
