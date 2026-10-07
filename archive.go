@@ -674,35 +674,9 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		}
 	}
 
-	var (
-		xattrErrs         []string
-		xattrPath         string
-		resolvedXattrPath bool
-	)
-	for key, value := range hdr.PAXRecords {
-		xattr, ok := strings.CutPrefix(key, paxSchilyXattr)
-		if !ok {
-			continue
-		}
-		if !resolvedXattrPath {
-			var err error
-			xattrPath, err = fsRootPath(root.Name(), dstPath)
-			if err != nil {
-				return err
-			}
-			resolvedXattrPath = true
-		}
-		// os.Root has no xattr support; use the absolute path derived from
-		// the root so the path remains bounded.
-		if err := lsetxattr(xattrPath, xattr, []byte(value), 0); err != nil {
-			if bestEffortXattrs && errors.Is(err, syscall.ENOTSUP) || errors.Is(err, syscall.EPERM) {
-				// EPERM occurs if modifying xattrs is not allowed. This can
-				// happen when running in userns with restrictions (ChromeOS).
-				xattrErrs = append(xattrErrs, err.Error())
-				continue
-			}
-			return err
-		}
+	xattrErrs, err := applyXattrs(root, dstPath, hdr.PAXRecords, bestEffortXattrs, internalOpts)
+	if err != nil {
+		return err
 	}
 
 	if len(xattrErrs) > 0 {
@@ -741,6 +715,39 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		}
 	}
 	return nil
+}
+
+// applyXattrs resolves the xattr destination once per entry, and only when
+// there are xattrs to restore.
+func applyXattrs(root *os.Root, name string, records map[string]string, bestEffort bool, opts *archiveoptions.Options) ([]string, error) {
+	for key := range records {
+		if !strings.HasPrefix(key, paxSchilyXattr) {
+			continue
+		}
+		var ignored []string
+		err := withXattrPath(root, name, opts, func(path string) error {
+			for key, value := range records {
+				attr, ok := strings.CutPrefix(key, paxSchilyXattr)
+				if !ok {
+					continue
+				}
+				if err := lsetxattr(path, attr, []byte(value), 0); err != nil {
+					// Keep the archive entry visible even when the syscall uses
+					// a procfd path or an isolated thread's relative basename.
+					err = fmt.Errorf("entry %q: %w", name, err)
+					if bestEffort && errors.Is(err, syscall.ENOTSUP) || errors.Is(err, syscall.EPERM) {
+						// EPERM also occurs in restricted user namespaces.
+						ignored = append(ignored, err.Error())
+						continue
+					}
+					return err
+				}
+			}
+			return nil
+		})
+		return ignored, err
+	}
+	return nil, nil
 }
 
 // Tar creates an archive from the directory at `srcPath`, and returns it as a
@@ -991,6 +998,9 @@ type unpackedDir struct {
 }
 
 // Unpack unpacks the decompressedArchive to dest with options.
+//
+// On Linux, restoring xattrs without /proc/self/fd requires permission to
+// call unshare(CLONE_FS). Otherwise extraction returns an error.
 func Unpack(decompressedArchive io.Reader, dest string, options *TarOptions) error {
 	if options == nil {
 		options = &TarOptions{}
