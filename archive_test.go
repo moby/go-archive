@@ -850,6 +850,65 @@ func TestUntarParentTraversalContained(t *testing.T) {
 	}
 }
 
+func TestUntarDestinationRootRetainsIdentityAfterRename(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not permit renaming an open directory")
+	}
+
+	base := t.TempDir()
+	dest := filepath.Join(base, "dest")
+	moved := filepath.Join(base, "moved")
+	assert.NilError(t, os.Mkdir(dest, 0o755))
+	root, err := os.OpenRoot(dest)
+	assert.NilError(t, err)
+	defer root.Close()
+	assert.NilError(t, root.Mkdir("output", 0o755))
+	assert.NilError(t, os.Rename(dest, moved))
+	assert.NilError(t, os.Mkdir(dest, 0o755))
+	assert.NilError(t, os.Mkdir(filepath.Join(dest, "output"), 0o755))
+	assert.NilError(t, os.Symlink("/wrong", filepath.Join(dest, "output", "link")))
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	content := []byte("stable root")
+	assert.NilError(t, tw.WriteHeader(&tar.Header{
+		Name:     "file",
+		Typeflag: tar.TypeReg,
+		Mode:     0o644,
+		Size:     int64(len(content)),
+	}))
+	_, err = tw.Write(content)
+	assert.NilError(t, err)
+	assert.NilError(t, tw.WriteHeader(&tar.Header{
+		Name:     "link",
+		Typeflag: tar.TypeSymlink,
+		Linkname: "/target",
+		Mode:     0o777,
+	}))
+	assert.NilError(t, tw.WriteHeader(&tar.Header{
+		Name:     "link/nested",
+		Typeflag: tar.TypeReg,
+		Mode:     0o644,
+		Size:     int64(len(content)),
+	}))
+	_, err = tw.Write(content)
+	assert.NilError(t, err)
+	assert.NilError(t, tw.Close())
+
+	assert.NilError(t, Untar(&buf, "output", &TarOptions{NoLchown: true, DestinationRoot: root}))
+	actual, err := os.ReadFile(filepath.Join(moved, "output", "file"))
+	assert.NilError(t, err)
+	assert.DeepEqual(t, actual, content)
+	actual, err = os.ReadFile(filepath.Join(moved, "output", "target", "nested"))
+	assert.NilError(t, err)
+	assert.DeepEqual(t, actual, content)
+	_, err = os.Stat(filepath.Join(dest, "output", "file"))
+	assert.Assert(t, os.IsNotExist(err))
+	_, err = root.Stat("output/file")
+	assert.NilError(t, err, "Untar must not close DestinationRoot")
+}
+
 // TestUntarSiblingPrefixContained verifies that a symlink whose target is a
 // sibling directory sharing the destination's path prefix (dest "base/dest",
 // sibling "base/dest-evil") cannot be written through. Regression test for the
@@ -916,6 +975,16 @@ func TestApplyLayerImpliedDirAfterWhiteout(t *testing.T) {
 	dt, err := os.ReadFile(filepath.Join(dest, "dir", "file2"))
 	assert.NilError(t, err)
 	assert.Equal(t, string(dt), "two")
+}
+
+// TestUnpackRejectsEmptyDest catches an empty dest being cleaned to ".",
+// which would extract into the process working directory.
+func TestUnpackRejectsEmptyDest(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	assert.NilError(t, tar.NewWriter(&buf).Close())
+	err := Unpack(&buf, "", &TarOptions{NoLchown: true})
+	assert.Assert(t, err != nil, "empty dest must not select the working directory")
 }
 
 func TestUnpackRecreatesImpliedDirectoryRemovedBetweenEntries(t *testing.T) {

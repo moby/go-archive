@@ -81,6 +81,18 @@ type (
 		// were probably in the archive for a reason, so set this option at
 		// your own peril.
 		BestEffortXattrs bool
+		// DestinationRoot selects an already-open directory for Unpack, Untar,
+		// and UntarUncompressed.
+		// When set, dest is interpreted relative to this root.
+		// An empty dest or "." extracts directly into the root.
+		// The caller retains ownership and must keep the root open during extraction.
+		// Extraction closes only roots it opens for nested destinations.
+		// Layer extraction and chrootarchive do not support this option.
+		// On macOS, device and FIFO creation is unsupported.
+		// Outside Linux, extended attributes are unsupported on hardlinks,
+		// symlinks, devices, and FIFOs.
+		// On Linux, extended attributes require a mounted /proc.
+		DestinationRoot *os.Root
 
 		// internalOptions contains options for use by packages within this module.
 		internalOptions *archiveoptions.Options
@@ -498,7 +510,7 @@ func resolveArchivePath(root *os.Root, name string) (resolvedArchivePath, error)
 	// Resolve the parent both to handle ENOENT from missing components or dangling
 	// symlinks, and to determine whether an os.Root breakout was caused by an
 	// absolute symlink. Relative symlink escapes preserve the original Stat error.
-	resolved, err := resolveFSRootPath(root.Name(), parent)
+	resolved, err := resolveRootPath(root, parent)
 	if err != nil {
 		return resolvedArchivePath{}, err
 	}
@@ -507,16 +519,7 @@ func resolveArchivePath(root *os.Root, name string) (resolvedArchivePath, error)
 		return resolvedArchivePath{}, statErr
 	}
 
-	relParent, err := filepath.Rel(root.Name(), resolved.path)
-	if err != nil {
-		return resolvedArchivePath{}, breakoutError(fmt.Errorf(
-			"could not make resolved parent %q relative to root %q: %w",
-			resolved.path,
-			root.Name(),
-			err,
-		))
-	}
-	if relParent != "." && !filepath.IsLocal(relParent) {
+	if resolved.path != "." && !filepath.IsLocal(resolved.path) {
 		return resolvedArchivePath{}, breakoutError(fmt.Errorf(
 			"resolved parent %q escapes root %q",
 			resolved.path,
@@ -524,7 +527,7 @@ func resolveArchivePath(root *os.Root, name string) (resolvedArchivePath, error)
 		))
 	}
 
-	return resolvedArchivePath{path: filepath.Join(relParent, base)}, nil
+	return resolvedArchivePath{path: filepath.Join(resolved.path, base)}, nil
 }
 
 // resolveHardlinkTarget validates a POSIX hardlink target and resolves it to
@@ -573,6 +576,8 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 	// but for os.Foo() calls we need the mode converted to os.FileMode,
 	// so use hdrInfo.Mode() (they differ for e.g. setuid bits)
 	hdrInfo := hdr.FileInfo()
+	// macOS has no mknodat; its pathname fallback cannot preserve root identity.
+	rootMknodUnsupported := opts != nil && opts.DestinationRoot != nil && runtime.GOOS == "darwin"
 
 	var hardlinkTarget string
 	if hdr.Typeflag == tar.TypeLink {
@@ -582,6 +587,14 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 			return err
 		}
 	}
+
+	// xattrFile is the descriptor of a regular file created for DestinationRoot.
+	var xattrFile *os.File
+	defer func() {
+		if xattrFile != nil {
+			_ = xattrFile.Close()
+		}
+	}()
 
 	switch hdr.Typeflag {
 	case tar.TypeDir:
@@ -610,18 +623,30 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 			_ = file.Close()
 			return err
 		}
-		_ = file.Close()
+		if opts != nil && opts.DestinationRoot != nil {
+			// Set extended attributes through this descriptor: reopening
+			// dstPath could open a device node swapped in concurrently.
+			xattrFile = file
+		} else {
+			_ = file.Close()
+		}
 
 	case tar.TypeBlock, tar.TypeChar:
 		if inUserns { // cannot create devices in a userns
 			log.G(context.TODO()).WithFields(log.Fields{"path": dstPath, "type": hdr.Typeflag}).Debug("skipping device nodes in a userns")
 			return nil
 		}
+		if rootMknodUnsupported {
+			return fmt.Errorf("device creation with DestinationRoot: %w", syscall.ENOTSUP)
+		}
 		if err := handleTarTypeBlockCharFifo(root, hdr, dstPath); err != nil {
 			return err
 		}
 
 	case tar.TypeFifo:
+		if rootMknodUnsupported {
+			return fmt.Errorf("FIFO creation with DestinationRoot: %w", syscall.ENOTSUP)
+		}
 		if err := handleTarTypeBlockCharFifo(root, hdr, dstPath); err != nil {
 			if inUserns && errors.Is(err, syscall.EPERM) {
 				// In most cases, cannot create a fifo if running in user namespace
@@ -684,17 +709,21 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		if !ok {
 			continue
 		}
-		if !resolvedXattrPath {
-			var err error
-			xattrPath, err = fsRootPath(root.Name(), dstPath)
-			if err != nil {
-				return err
+		var err error
+		if opts != nil && opts.DestinationRoot != nil {
+			err = lsetxattrInRoot(root, dstPath, xattrFile, xattr, []byte(value), 0)
+		} else {
+			if !resolvedXattrPath {
+				var err error
+				xattrPath, err = fsRootPath(root, dstPath)
+				if err != nil {
+					return err
+				}
+				resolvedXattrPath = true
 			}
-			resolvedXattrPath = true
+			err = lsetxattr(xattrPath, xattr, []byte(value), 0)
 		}
-		// os.Root has no xattr support; use the absolute path derived from
-		// the root so the path remains bounded.
-		if err := lsetxattr(xattrPath, xattr, []byte(value), 0); err != nil {
+		if err != nil {
 			if bestEffortXattrs && errors.Is(err, syscall.ENOTSUP) || errors.Is(err, syscall.EPERM) {
 				// EPERM occurs if modifying xattrs is not allowed. This can
 				// happen when running in userns with restrictions (ChromeOS).
@@ -995,11 +1024,22 @@ func Unpack(decompressedArchive io.Reader, dest string, options *TarOptions) err
 	if options == nil {
 		options = &TarOptions{}
 	}
-	root, err := os.OpenRoot(dest)
-	if err != nil {
-		return err
+	root := options.DestinationRoot
+	if root == nil {
+		var err error
+		root, err = os.OpenRoot(dest)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = root.Close() }()
+	} else if dest != "" && dest != "." {
+		var err error
+		root, err = root.OpenRoot(dest)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = root.Close() }()
 	}
-	defer func() { _ = root.Close() }()
 
 	tr := tar.NewReader(decompressedArchive)
 
@@ -1252,9 +1292,8 @@ func untarHandler(tarArchive io.Reader, dest string, options *TarOptions, decomp
 	if tarArchive == nil {
 		return errors.New("empty archive")
 	}
-	dest = filepath.Clean(dest)
-	if options == nil {
-		options = &TarOptions{}
+	if options == nil || options.DestinationRoot == nil {
+		dest = filepath.Clean(dest)
 	}
 
 	r := tarArchive
