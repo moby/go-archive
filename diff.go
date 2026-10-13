@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -120,33 +121,23 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 				if err != nil {
 					return 0, err
 				}
-				// Walk the absolute directory so we can call os.RemoveAll on
-				// paths outside the walk callback's reach, then convert each
-				// walked path back to a root-relative name for the
-				// unpackedPaths check.
-				// fsRootPath walks each path component and bounds any symlinks
-				// within the root to prevent TOCTOU symlink attacks.
-				absDir, err := fsRootPath(root.Name(), dir)
-				if err != nil {
-					return 0, err
-				}
-				err = filepath.WalkDir(absDir, func(p string, info os.DirEntry, err error) error {
+				// Walk through the root handle so a renamed and replaced
+				// destination cannot redirect the walk.
+				walkDir := filepath.ToSlash(dir)
+				err = fs.WalkDir(root.FS(), walkDir, func(p string, info fs.DirEntry, err error) error {
 					if err != nil {
 						if os.IsNotExist(err) {
 							return nil // parent was deleted
 						}
 						return err
 					}
-					if p == absDir {
+					if p == walkDir {
 						return nil
 					}
-					rel, err := filepath.Rel(root.Name(), p)
-					if err != nil {
-						return err
-					}
+					rel := filepath.FromSlash(p)
 
 					// unpackedPaths is keyed by resolved, native-separator,
-					// root-relative paths, matching filepath.WalkDir's paths.
+					// root-relative paths.
 					if _, exists := unpackedPaths[rel]; !exists {
 						return root.RemoveAll(rel)
 					}

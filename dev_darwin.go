@@ -13,7 +13,7 @@ func mknod(path string, mode uint32, dev uint64) error {
 }
 
 func mknodInRoot(root *os.Root, path string, mode uint32, dev uint64) error {
-	abs, err := fsRootPath(root.Name(), path)
+	abs, err := fsRootPath(root, path)
 	if err != nil {
 		return err
 	}

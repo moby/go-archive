@@ -498,7 +498,7 @@ func resolveArchivePath(root *os.Root, name string) (resolvedArchivePath, error)
 	// Resolve the parent both to handle ENOENT from missing components or dangling
 	// symlinks, and to determine whether an os.Root breakout was caused by an
 	// absolute symlink. Relative symlink escapes preserve the original Stat error.
-	resolved, err := resolveFSRootPath(root.Name(), parent)
+	resolved, err := resolveRootPath(root, parent)
 	if err != nil {
 		return resolvedArchivePath{}, err
 	}
@@ -507,16 +507,7 @@ func resolveArchivePath(root *os.Root, name string) (resolvedArchivePath, error)
 		return resolvedArchivePath{}, statErr
 	}
 
-	relParent, err := filepath.Rel(root.Name(), resolved.path)
-	if err != nil {
-		return resolvedArchivePath{}, breakoutError(fmt.Errorf(
-			"could not make resolved parent %q relative to root %q: %w",
-			resolved.path,
-			root.Name(),
-			err,
-		))
-	}
-	if relParent != "." && !filepath.IsLocal(relParent) {
+	if resolved.path != "." && !filepath.IsLocal(resolved.path) {
 		return resolvedArchivePath{}, breakoutError(fmt.Errorf(
 			"resolved parent %q escapes root %q",
 			resolved.path,
@@ -524,7 +515,7 @@ func resolveArchivePath(root *os.Root, name string) (resolvedArchivePath, error)
 		))
 	}
 
-	return resolvedArchivePath{path: filepath.Join(relParent, base)}, nil
+	return resolvedArchivePath{path: filepath.Join(resolved.path, base)}, nil
 }
 
 // resolveHardlinkTarget validates a POSIX hardlink target and resolves it to
@@ -686,7 +677,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		}
 		if !resolvedXattrPath {
 			var err error
-			xattrPath, err = fsRootPath(root.Name(), dstPath)
+			xattrPath, err = fsRootPath(root, dstPath)
 			if err != nil {
 				return err
 			}
