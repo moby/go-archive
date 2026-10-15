@@ -20,6 +20,7 @@ import (
 	"github.com/moby/patternmatcher"
 	"github.com/moby/sys/sequential"
 	"github.com/moby/sys/user"
+	"github.com/tonistiigi/fsutil"
 
 	"github.com/moby/go-archive/compression"
 	"github.com/moby/go-archive/tarheader"
@@ -574,6 +575,11 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 	// so use hdrInfo.Mode() (they differ for e.g. setuid bits)
 	hdrInfo := hdr.FileInfo()
 
+	if hdr.Typeflag == tar.TypeXGlobalHeader {
+		log.G(context.TODO()).Debug("PAX Global Extended Headers found and ignored")
+		return nil
+	}
+
 	var hardlinkTarget string
 	if hdr.Typeflag == tar.TypeLink {
 		var err error
@@ -583,6 +589,15 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		}
 	}
 
+	fsRoot := fsutil.WrapRoot(root)
+	defer fsRoot.Close()
+
+	entry, err := fsutil.OpenRootEntry(fsRoot, dstPath)
+	if err != nil {
+		return err
+	}
+	defer entry.Close()
+
 	switch hdr.Typeflag {
 	case tar.TypeDir:
 		// Create directory unless it already exists as one; merge in that case.
@@ -590,7 +605,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		// bits; special bits (setuid, setgid, sticky) are applied afterward
 		// by handleLChmod via root.Chmod.
 		if fi, err := root.Lstat(dstPath); err != nil || !fi.IsDir() {
-			if err := root.Mkdir(dstPath, hdrInfo.Mode()&0o777); err != nil {
+			if err := entry.Mkdir(hdrInfo.Mode() & 0o777); err != nil {
 				return err
 			}
 		}
@@ -602,7 +617,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		// bits; special bits are applied afterward by handleLChmod.
 		// We use sequential file access to avoid depleting the standby list
 		// on Windows (go1.26). On Linux, this equates to a regular os.OpenFile.
-		file, err := root.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|windows_O_FILE_FLAG_SEQUENTIAL_SCAN, hdrInfo.Mode()&0o777)
+		file, err := openRootEntryFile(root, entry, dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|windows_O_FILE_FLAG_SEQUENTIAL_SCAN, hdrInfo.Mode()&0o777)
 		if err != nil {
 			return err
 		}
@@ -617,12 +632,12 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 			log.G(context.TODO()).WithFields(log.Fields{"path": dstPath, "type": hdr.Typeflag}).Debug("skipping device nodes in a userns")
 			return nil
 		}
-		if err := handleTarTypeBlockCharFifo(root, hdr, dstPath); err != nil {
+		if err := handleTarTypeBlockCharFifo(root, entry, hdr, dstPath); err != nil {
 			return err
 		}
 
 	case tar.TypeFifo:
-		if err := handleTarTypeBlockCharFifo(root, hdr, dstPath); err != nil {
+		if err := handleTarTypeBlockCharFifo(root, entry, hdr, dstPath); err != nil {
 			if inUserns && errors.Is(err, syscall.EPERM) {
 				// In most cases, cannot create a fifo if running in user namespace
 				log.G(context.TODO()).WithFields(log.Fields{"error": err, "path": dstPath, "type": hdr.Typeflag}).Debug("creating fifo node in a userns")
@@ -648,13 +663,9 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		// created within root via openat(2) semantics, without resolving to an
 		// absolute path; containment applies when the symlink is followed, not
 		// at creation.
-		if err := root.Symlink(linkTarget, dstPath); err != nil {
+		if err := entry.Symlink(linkTarget); err != nil {
 			return err
 		}
-
-	case tar.TypeXGlobalHeader:
-		log.G(context.TODO()).Debug("PAX Global Extended Headers found and ignored")
-		return nil
 
 	default:
 		return fmt.Errorf("unhandled tar header type %d", hdr.Typeflag)
@@ -665,7 +676,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		if chownOpts == nil {
 			chownOpts = &ChownOpts{UID: hdr.Uid, GID: hdr.Gid}
 		}
-		if err := root.Lchown(dstPath, chownOpts.UID, chownOpts.GID); err != nil {
+		if err := entry.Lchown(chownOpts.UID, chownOpts.GID); err != nil {
 			var msg string
 			if inUserns && errors.Is(err, syscall.EINVAL) {
 				msg = " (try increasing the number of subordinate IDs in /etc/subuid and /etc/subgid)"
@@ -674,27 +685,13 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 		}
 	}
 
-	var (
-		xattrErrs         []string
-		xattrPath         string
-		resolvedXattrPath bool
-	)
+	var xattrErrs []string
 	for key, value := range hdr.PAXRecords {
 		xattr, ok := strings.CutPrefix(key, paxSchilyXattr)
 		if !ok {
 			continue
 		}
-		if !resolvedXattrPath {
-			var err error
-			xattrPath, err = fsRootPath(root.Name(), dstPath)
-			if err != nil {
-				return err
-			}
-			resolvedXattrPath = true
-		}
-		// os.Root has no xattr support; use the absolute path derived from
-		// the root so the path remains bounded.
-		if err := lsetxattr(xattrPath, xattr, []byte(value), 0); err != nil {
+		if err := setRootEntryXattr(entry, xattr, []byte(value), 0); err != nil {
 			if bestEffortXattrs && errors.Is(err, syscall.ENOTSUP) || errors.Is(err, syscall.EPERM) {
 				// EPERM occurs if modifying xattrs is not allowed. This can
 				// happen when running in userns with restrictions (ChromeOS).
@@ -713,7 +710,7 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 
 	// There is no LChmod, so ignore mode for symlink. Also, this
 	// must happen after chown, as that can modify the file mode
-	if err := handleLChmod(root, dstPath, hardlinkTarget, hdr, hdrInfo, internalOpts); err != nil {
+	if err := handleLChmod(root, entry, hardlinkTarget, hdr, hdrInfo, internalOpts); err != nil {
 		return err
 	}
 
@@ -723,20 +720,22 @@ func createTarFile(root *os.Root, dstPath string, hdr *tar.Header, reader io.Rea
 	switch hdr.Typeflag {
 	case tar.TypeSymlink:
 		// Apply timestamps to the symlink itself (AT_SYMLINK_NOFOLLOW).
-		if err := lchtimes(root, dstPath, aTime, mTime); err != nil {
+		if err := lchtimesRootEntry(root, entry, dstPath, aTime, mTime); err != nil {
 			return err
 		}
 	case tar.TypeLink:
 		// Follow the hardlink only when its target is not itself a symlink.
 		fi, err := root.Lstat(hardlinkTarget)
 		if err == nil && fi.Mode()&os.ModeSymlink == 0 {
-			if err := chtimes(root, dstPath, aTime, mTime); err != nil {
+			if err := chtimesRootEntry(root, entry, dstPath, aTime, mTime); err != nil {
 				return err
 			}
 		}
 	default:
-		// All other file types follow symlinks.
-		if err := chtimes(root, dstPath, aTime, mTime); err != nil {
+		// Other entries are created by this extraction path and are not expected
+		// to be symlinks. Use the entry operation to avoid following a concurrent
+		// replacement.
+		if err := chtimesRootEntry(root, entry, dstPath, aTime, mTime); err != nil {
 			return err
 		}
 	}

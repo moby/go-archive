@@ -10,6 +10,7 @@ import (
 
 	"github.com/moby/go-archive/internal/archiveoptions"
 	"github.com/moby/sys/userns"
+	"github.com/tonistiigi/fsutil"
 	"golang.org/x/sys/unix"
 )
 
@@ -123,15 +124,18 @@ func (c overlayWhiteoutConverter) ConvertRead(root *os.Root, hdr *tar.Header, fi
 			return true, nil
 		}
 
-		parent, err := root.Open(dir)
+		// If a file was deleted, and we are using overlay, we need to create a character device.
+		originalPath := filepath.Join(dir, originalBase)
+		fsRoot := fsutil.WrapRoot(root)
+		defer fsRoot.Close()
+
+		entry, err := fsutil.OpenRootEntry(fsRoot, originalPath)
 		if err != nil {
 			return false, err
 		}
-		defer parent.Close()
+		defer entry.Close()
 
-		// If a file was deleted, and we are using overlay, we need to create a character device.
-		originalPath := filepath.Join(dir, originalBase)
-		if err := unix.Mknodat(int(parent.Fd()), originalBase, unix.S_IFCHR, 0); err != nil {
+		if err := entry.Mknod(unix.S_IFCHR, 0); err != nil {
 			return false, fmt.Errorf("failed to mknod('%s', S_IFCHR, 0): %w", originalPath, err)
 		}
 
@@ -149,7 +153,7 @@ func (c overlayWhiteoutConverter) ConvertRead(root *os.Root, hdr *tar.Header, fi
 			// number 0:0, not ownership: https://docs.kernel.org/filesystems/overlayfs.html#whiteouts-and-opaque-directories
 			//
 			// If ownership is not required, this Fchownat can be removed to avoid the remaining TOCTOU window.
-			if err := unix.Fchownat(int(parent.Fd()), originalBase, hdr.Uid, hdr.Gid, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+			if err := entry.Lchown(hdr.Uid, hdr.Gid); err != nil {
 				return false, &os.PathError{Op: "lchown", Path: originalPath, Err: err}
 			}
 		}
