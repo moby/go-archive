@@ -17,6 +17,154 @@ import (
 	"gotest.tools/v3/skip"
 )
 
+func TestApplyXattrsOnDanglingSymlink(t *testing.T) {
+	for _, target := range []string{"usr/bin", "/missing", "../../outside"} {
+		t.Run(target, func(t *testing.T) {
+			dest := t.TempDir()
+			assert.NilError(t, os.Mkdir(filepath.Join(dest, "dir"), 0o755))
+			assert.NilError(t, os.Symlink(target, filepath.Join(dest, "dir", "link")))
+			root, err := os.OpenRoot(dest)
+			assert.NilError(t, err)
+			defer root.Close()
+
+			// user xattrs on Linux symlinks normally return EPERM. Compare
+			// against the direct syscall so this test needs no SELinux support.
+			directErr := unix.Lsetxattr(filepath.Join(dest, "dir", "link"), "user.archive", []byte("value"), 0)
+			ignored, err := applyXattrs(root, "dir/link", map[string]string{paxSchilyXattr + "user.archive": "value"}, false, nil)
+			if errors.Is(directErr, unix.EPERM) {
+				assert.NilError(t, err)
+				assert.Equal(t, len(ignored), 1)
+				assert.Assert(t, is.Contains(ignored[0], `entry "dir/link"`))
+			} else if directErr == nil {
+				assert.NilError(t, err)
+			} else {
+				assert.ErrorIs(t, err, directErr)
+			}
+			assert.Assert(t, !errors.Is(err, os.ErrNotExist), "must address the symlink, not its missing target")
+		})
+	}
+}
+
+func TestXattrPathPinsParent(t *testing.T) {
+	dest := t.TempDir()
+	assert.NilError(t, os.Mkdir(filepath.Join(dest, "dir"), 0o755))
+	assert.NilError(t, os.WriteFile(filepath.Join(dest, "dir", "file"), nil, 0o600))
+	outside := t.TempDir()
+	assert.NilError(t, os.WriteFile(filepath.Join(outside, "file"), nil, 0o600))
+	root, err := os.OpenRoot(dest)
+	assert.NilError(t, err)
+	defer root.Close()
+
+	err = withXattrPath(root, "dir/file", nil, func(path string) error {
+		// Replace the parent after it has been pinned, before the syscall.
+		if err := os.Rename(filepath.Join(dest, "dir"), filepath.Join(dest, "moved")); err != nil {
+			return err
+		}
+		if err := os.Symlink(outside, filepath.Join(dest, "dir")); err != nil {
+			return err
+		}
+		return lsetxattr(path, "user.archive", []byte("value"), 0)
+	})
+	assert.NilError(t, err)
+	value, err := lgetxattr(filepath.Join(dest, "moved", "file"), "user.archive")
+	assert.NilError(t, err)
+	assert.Equal(t, string(value), "value")
+	value, err = lgetxattr(filepath.Join(outside, "file"), "user.archive")
+	assert.NilError(t, err)
+	assert.Assert(t, len(value) == 0)
+}
+
+func TestApplyXattrsKeepsErrors(t *testing.T) {
+	dest := t.TempDir()
+	assert.NilError(t, os.WriteFile(filepath.Join(dest, "file"), nil, 0o600))
+	root, err := os.OpenRoot(dest)
+	assert.NilError(t, err)
+	defer root.Close()
+	for _, bestEffort := range []bool{false, true} {
+		_, err := applyXattrs(root, "file", map[string]string{paxSchilyXattr + "user.bad\x00name": "value"}, bestEffort, nil)
+		assert.ErrorIs(t, err, unix.EINVAL)
+		assert.Assert(t, is.Contains(err.Error(), `entry "file"`))
+		_, err = applyXattrs(root, "missing/file", map[string]string{paxSchilyXattr + "user.archive": "value"}, bestEffort, nil)
+		assert.ErrorIs(t, err, os.ErrNotExist)
+	}
+	// Headers without xattrs must not resolve an xattr destination.
+	_, err = applyXattrs(root, "missing/file", map[string]string{"unrelated": "value"}, false, nil)
+	assert.NilError(t, err)
+}
+
+func TestApplyXattrsAfterRootRename(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "root")
+	assert.NilError(t, os.Mkdir(dest, 0o755))
+	assert.NilError(t, os.WriteFile(filepath.Join(dest, "file"), nil, 0o200))
+	root, err := os.OpenRoot(dest)
+	assert.NilError(t, err)
+	defer root.Close()
+
+	moved := dest + "-moved"
+	assert.NilError(t, os.Rename(dest, moved))
+	outside := t.TempDir()
+	assert.NilError(t, os.WriteFile(filepath.Join(outside, "file"), nil, 0o600))
+	assert.NilError(t, os.Symlink(outside, dest))
+	_, err = applyXattrs(root, "file", map[string]string{paxSchilyXattr + "user.archive": "value"}, false, nil)
+	assert.NilError(t, err)
+	// Reading the xattr needs read permission, even though setting it does not.
+	assert.NilError(t, os.Chmod(filepath.Join(moved, "file"), 0o600))
+	value, err := lgetxattr(filepath.Join(moved, "file"), "user.archive")
+	assert.NilError(t, err)
+	assert.Equal(t, string(value), "value")
+	value, err = lgetxattr(filepath.Join(outside, "file"), "user.archive")
+	assert.NilError(t, err)
+	assert.Assert(t, len(value) == 0)
+}
+
+func TestUntarXattrsThroughSymlinkedParent(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, hdr := range []*tar.Header{
+		{Name: "bin", Typeflag: tar.TypeSymlink, Linkname: "usr/bin", Mode: 0o777},
+		{Name: "usr", Typeflag: tar.TypeDir, Mode: 0o755},
+		{Name: "usr/bin", Typeflag: tar.TypeDir, Mode: 0o755},
+		{Name: "bin/tool", Typeflag: tar.TypeReg, Mode: 0o600, PAXRecords: map[string]string{paxSchilyXattr + "user.archive": "value"}},
+	} {
+		assert.NilError(t, tw.WriteHeader(hdr))
+	}
+	assert.NilError(t, tw.Close())
+	dest := t.TempDir()
+	assert.NilError(t, Untar(&buf, dest, &TarOptions{NoLchown: true}))
+	value, err := lgetxattr(filepath.Join(dest, "usr", "bin", "tool"), "user.archive")
+	assert.NilError(t, err)
+	assert.Equal(t, string(value), "value")
+}
+
+// Regression coverage for https://github.com/moby/go-archive/issues/109.
+func TestUntarSELinuxXattrOnDanglingSymlink(t *testing.T) {
+	const (
+		attr  = "security.selinux"
+		value = "system_u:object_r:container_file_t:s0"
+	)
+	probe := filepath.Join(t.TempDir(), "probe")
+	assert.NilError(t, os.Symlink("usr/bin", probe))
+	if err := lsetxattr(probe, attr, []byte(value), 0); err != nil {
+		t.Skipf("cannot set %q on symlinks: %v", attr, err)
+	}
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, hdr := range []*tar.Header{
+		{Name: "bin", Typeflag: tar.TypeSymlink, Linkname: "usr/bin", Mode: 0o777, PAXRecords: map[string]string{paxSchilyXattr + attr: value}},
+		{Name: "usr/", Typeflag: tar.TypeDir, Mode: 0o755},
+		{Name: "usr/bin/", Typeflag: tar.TypeDir, Mode: 0o755},
+	} {
+		assert.NilError(t, tw.WriteHeader(hdr))
+	}
+	assert.NilError(t, tw.Close())
+	dest := t.TempDir()
+	assert.NilError(t, Untar(&buf, dest, &TarOptions{NoLchown: true}))
+	got, err := lgetxattr(filepath.Join(dest, "bin"), attr)
+	assert.NilError(t, err)
+	assert.Equal(t, string(got), value)
+}
+
 // setupOverlayTestDir creates files in a directory with overlay whiteouts
 // Tree layout
 //
