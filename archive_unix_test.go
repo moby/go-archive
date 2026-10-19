@@ -604,6 +604,9 @@ func TestResolveFSRootPathParentTraversal(t *testing.T) {
 	} {
 		assert.NilError(t, os.Symlink(target, filepath.Join(dest, name)))
 	}
+	root, err := os.OpenRoot(dest)
+	assert.NilError(t, err)
+	defer root.Close()
 	for _, tc := range []struct {
 		path     string
 		want     string
@@ -621,17 +624,55 @@ func TestResolveFSRootPathParentTraversal(t *testing.T) {
 		{path: "loop/../out", err: errTooManyLinks},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
-			result, err := resolveFSRootPath(dest, tc.path)
+			result, err := resolveRootPath(root, tc.path)
 			if tc.err != nil {
 				assert.Check(t, errors.Is(err, tc.err), "expected %v, got %v", tc.err, err)
 				return
 			}
 			assert.NilError(t, err)
-			assert.Equal(t, result.path, filepath.Join(dest, tc.want))
+			assert.Equal(t, result.path, filepath.FromSlash(tc.want))
 			assert.Equal(t, result.followedAbsoluteLink, tc.absolute)
 			assert.Equal(t, result.relativeEscapeBeforeAbsolute, tc.escape)
 		})
 	}
+}
+
+func TestResolveRootPathAfterRootReplaced(t *testing.T) {
+	tmp := t.TempDir()
+	dest := filepath.Join(tmp, "dest")
+	assert.NilError(t, os.MkdirAll(filepath.Join(dest, "real"), 0o755))
+	assert.NilError(t, os.Symlink("real", filepath.Join(dest, "link")))
+	root, err := os.OpenRoot(dest)
+	assert.NilError(t, err)
+	defer root.Close()
+
+	assert.NilError(t, os.Rename(dest, filepath.Join(tmp, "moved")))
+	assert.NilError(t, os.MkdirAll(filepath.Join(dest, "real"), 0o755))
+	assert.NilError(t, os.Mkdir(filepath.Join(dest, "replacement"), 0o755))
+	assert.NilError(t, os.Symlink("replacement", filepath.Join(dest, "link")))
+
+	result, err := resolveRootPath(root, filepath.Join("link", "missing"))
+	assert.NilError(t, err)
+	assert.Equal(t, result.path, filepath.Join("real", "missing"))
+
+	// dest/real exists again, but it is not the directory the handle resolved.
+	_, err = fsRootPath(root, filepath.Join("link", "file"))
+	var breakout *breakoutErr
+	assert.Check(t, errors.As(err, &breakout), "expected breakout error, got %v", err)
+}
+
+func TestFSRootPathSymlinkedRoot(t *testing.T) {
+	tmp := t.TempDir()
+	assert.NilError(t, os.Mkdir(filepath.Join(tmp, "real"), 0o755))
+	dest := filepath.Join(tmp, "dest")
+	assert.NilError(t, os.Symlink("real", dest))
+	root, err := os.OpenRoot(dest)
+	assert.NilError(t, err)
+	defer root.Close()
+
+	got, err := fsRootPath(root, "file")
+	assert.NilError(t, err)
+	assert.Equal(t, got, filepath.Join(dest, "file"))
 }
 
 func TestUnpackResolvesSymlinksBeforeParentTraversal(t *testing.T) {

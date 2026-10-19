@@ -18,6 +18,7 @@ package archive
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,18 +33,42 @@ type fsRootPathResult struct {
 	relativeEscapeBeforeAbsolute bool
 }
 
-// fsRootPath joins a path with a root, evaluating and bounding any
-// symlink to the root directory.
-func fsRootPath(root, path string) (string, error) {
-	result, err := resolveFSRootPath(root, path)
+// fsRootPath returns a host path for operations that os.Root does not support.
+// It resolves path through the root handle, then fails if the host path's
+// parent no longer leads to the directory found through the handle, such as
+// after the root was renamed and replaced.
+func fsRootPath(root *os.Root, path string) (string, error) {
+	result, err := resolveRootPath(root, path)
 	if err != nil {
 		return "", err
 	}
-	return result.path, nil
+	parent := filepath.Dir(result.path)
+	// This only rejects a root that was already replaced.
+	// The name can still be swapped after the check, but that now requires
+	// winning a race rather than preparing a replacement tree in advance.
+	// Closing the race needs handle-relative xattr and mknod calls, which
+	// x/sys does not provide on every supported platform.
+	// Stat follows a destination opened through a symlink, and root.Stat
+	// rejects a parent swapped for a symlink that escapes the root.
+	want, err := root.Stat(parent)
+	if err != nil {
+		return "", err
+	}
+	hostParent := filepath.Join(root.Name(), parent)
+	got, err := os.Stat(hostParent)
+	if err != nil {
+		return "", err
+	}
+	if !os.SameFile(got, want) {
+		return "", breakoutError(fmt.Errorf("%q no longer refers to %q in the opened root", hostParent, parent))
+	}
+	return filepath.Join(root.Name(), result.path), nil
 }
 
-func resolveFSRootPath(root, path string) (fsRootPathResult, error) {
-	result := fsRootPathResult{path: root}
+// resolveRootPath resolves symlinks through the directory handle, including
+// absolute targets interpreted relative to root rather than the host filesystem.
+func resolveRootPath(root *os.Root, path string) (fsRootPathResult, error) {
+	result := fsRootPathResult{path: "."}
 	parts := strings.Split(filepath.FromSlash(path), string(os.PathSeparator))
 	resolved := make([]string, 0, len(parts))
 	linksWalked := 0
@@ -64,8 +89,8 @@ func resolveFSRootPath(root, path string) (fsRootPathResult, error) {
 			continue
 		}
 
-		candidate := filepath.Join(root, filepath.Join(append(resolved, part)...))
-		fi, err := os.Lstat(candidate)
+		candidate := filepath.Join(append(resolved, part)...)
+		fi, err := root.Lstat(candidate)
 		if os.IsNotExist(err) {
 			// A later .. can return to an existing parent. Continue resolving
 			// instead of cleaning the remaining path and skipping its symlinks.
@@ -77,7 +102,7 @@ func resolveFSRootPath(root, path string) (fsRootPathResult, error) {
 		}
 		if fi.Mode()&os.ModeSymlink == 0 {
 			if len(parts) > 0 && !fi.IsDir() {
-				return fsRootPathResult{}, &os.PathError{Op: "resolve", Path: candidate, Err: syscall.ENOTDIR}
+				return fsRootPathResult{}, &os.PathError{Op: "resolve", Path: filepath.Join(root.Name(), candidate), Err: syscall.ENOTDIR}
 			}
 			resolved = append(resolved, part)
 			continue
@@ -86,7 +111,7 @@ func resolveFSRootPath(root, path string) (fsRootPathResult, error) {
 			return fsRootPathResult{}, errTooManyLinks
 		}
 		linksWalked++
-		target, err := os.Readlink(candidate)
+		target, err := root.Readlink(candidate)
 		if err != nil {
 			return fsRootPathResult{}, err
 		}
@@ -98,6 +123,8 @@ func resolveFSRootPath(root, path string) (fsRootPathResult, error) {
 		// would remove the link rather than the directory it resolves to.
 		parts = append(strings.Split(filepath.FromSlash(target), string(os.PathSeparator)), parts...)
 	}
-	result.path = filepath.Join(root, filepath.Join(resolved...))
+	if len(resolved) > 0 {
+		result.path = filepath.Join(resolved...)
+	}
 	return result, nil
 }
