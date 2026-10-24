@@ -81,6 +81,10 @@ type (
 		// were probably in the archive for a reason, so set this option at
 		// your own peril.
 		BestEffortXattrs bool
+		// DestinationRoot constrains extraction to an already-open directory.
+		// When set, extraction paths are interpreted relative to this root. The
+		// caller retains ownership of DestinationRoot.
+		DestinationRoot *os.Root
 
 		// internalOptions contains options for use by packages within this module.
 		internalOptions *archiveoptions.Options
@@ -995,11 +999,14 @@ func Unpack(decompressedArchive io.Reader, dest string, options *TarOptions) err
 	if options == nil {
 		options = &TarOptions{}
 	}
-	root, err := os.OpenRoot(dest)
+	dest = filepath.Clean(dest)
+	root, closeRoot, err := extractionRoot(dest, options)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = root.Close() }()
+	if closeRoot {
+		defer func() { _ = root.Close() }()
+	}
 
 	tr := tar.NewReader(decompressedArchive)
 
@@ -1130,6 +1137,18 @@ loop:
 	return nil
 }
 
+func extractionRoot(dest string, options *TarOptions) (*os.Root, bool, error) {
+	if options.DestinationRoot == nil {
+		root, err := os.OpenRoot(dest)
+		return root, err == nil, err
+	}
+	if dest == "." {
+		return options.DestinationRoot, false, nil
+	}
+	root, err := options.DestinationRoot.OpenRoot(dest)
+	return root, err == nil, err
+}
+
 // unrepresentableOnWindows returns an error describing why a tar entry cannot
 // be faithfully created on Windows, or nil if it can (always on non-Windows).
 // On Windows ":" is illegal in a filename and "\" is a path separator, so a tar
@@ -1253,9 +1272,6 @@ func untarHandler(tarArchive io.Reader, dest string, options *TarOptions, decomp
 		return errors.New("empty archive")
 	}
 	dest = filepath.Clean(dest)
-	if options == nil {
-		options = &TarOptions{}
-	}
 
 	r := tarArchive
 	if decompress {
