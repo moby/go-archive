@@ -17,6 +17,10 @@ linters:
     presets:
       - comments
       - std-error-handling
+    paths:
+      # Forked from https://github.com/golang/go/tree/go1.26.0/src/internal/syscall/windows
+      # and we want to stay close to upstream.
+      - ^internal[\\/]syscall[\\/]windows[\\/]
     rules:
       # Ignore "G204: Subprocess launched with a potential tainted input or cmd arguments"
       - path: '(.+)_test\.go'
@@ -43,3 +47,7 @@ formatters:
     - goimports
   exclusions:
     generated: disable
+    paths:
+      # Forked from https://github.com/golang/go/tree/go1.26.0/src/internal/syscall/windows
+      # and we want to stay close to upstream.
+      - ^internal[\\/]syscall[\\/]windows[\\/]
