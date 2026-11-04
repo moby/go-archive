@@ -39,12 +39,5 @@ func withXattrPath(root *os.Root, name string, opts *archiveoptions.Options, app
 	// Extraction can run without procfs, including callers that did not
 	// prepare options through chrootarchive. Change cwd only on an isolated
 	// thread so lsetxattr still addresses the pinned parent directly.
-	done := make(chan error, 1)
-	err = unshare.Go(unix.CLONE_FS, func() error { return parent.Chdir() }, func() {
-		done <- apply(base)
-	})
-	if err != nil {
-		return err
-	}
-	return <-done
+	return unshare.WithCwd(parent, func() error { return apply(base) })
 }
