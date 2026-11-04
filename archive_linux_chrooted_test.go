@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/moby/go-archive/internal/mounttree"
@@ -48,7 +49,9 @@ func TestChmodNoSymlinkFallbackInChrootWithoutProc(t *testing.T) {
 	}
 
 	var testErr error
+	done := make(chan struct{})
 	err = unshare.Go(unix.CLONE_FS|unix.CLONE_NEWNS, setupFn, func() {
+		defer close(done)
 		if _, err := os.Stat("/proc/self/fd"); !errors.Is(err, os.ErrNotExist) {
 			testErr = fmt.Errorf("/proc/self/fd: expected not to exist, got %w", err)
 			return
@@ -76,6 +79,7 @@ func TestChmodNoSymlinkFallbackInChrootWithoutProc(t *testing.T) {
 		}
 	})
 	assert.NilError(t, err)
+	<-done
 	assert.NilError(t, testErr)
 }
 
@@ -142,4 +146,90 @@ func TestApplyXattrsInChrootWithoutProc(t *testing.T) {
 			assert.Equal(t, string(value), "value")
 		})
 	}
+}
+
+func TestXattrPathReusesIsolatedContext(t *testing.T) {
+	skip.If(t, os.Getuid() != 0, "test requires root")
+	dest := t.TempDir()
+	assert.NilError(t, os.Mkdir(filepath.Join(dest, "parent"), 0o755))
+	root, err := os.OpenRoot(dest)
+	assert.NilError(t, err)
+	defer root.Close()
+	opts, cleanup, err := WithProcSelfFD(nil)
+	assert.NilError(t, err)
+	defer cleanup()
+	done := make(chan error, 1)
+	err = unshare.Go(unix.CLONE_FS, nil, func() {
+		cwd, err := os.Getwd()
+		if err != nil {
+			done <- err
+			return
+		}
+		tid := unix.Gettid()
+		wantErr := errors.New("callback failed")
+		for range 2 {
+			err := withXattrPath(root, "parent/file", opts.internalOptions, func(path string) error {
+				if unix.Gettid() != tid {
+					return errors.New("xattrs created another thread")
+				}
+				if err := os.WriteFile(path, []byte("value"), 0o600); err != nil {
+					return err
+				}
+				return wantErr
+			})
+			if !errors.Is(err, wantErr) {
+				done <- fmt.Errorf("unexpected callback error: %w", err)
+				return
+			}
+			got, err := os.Getwd()
+			if err != nil {
+				done <- err
+				return
+			}
+			if got != cwd {
+				done <- fmt.Errorf("cwd = %q, want %q", got, cwd)
+				return
+			}
+		}
+		done <- nil
+	})
+	assert.NilError(t, err)
+	assert.NilError(t, <-done)
+	data, err := os.ReadFile(filepath.Join(dest, "parent", "file"))
+	assert.NilError(t, err)
+	assert.Equal(t, string(data), "value")
+}
+
+func TestXattrPathCreatesIsolatedContext(t *testing.T) {
+	skip.If(t, os.Getuid() != 0, "test requires root")
+	dest := t.TempDir()
+	assert.NilError(t, os.Mkdir(filepath.Join(dest, "parent"), 0o755))
+	root, err := os.OpenRoot(dest)
+	assert.NilError(t, err)
+	defer root.Close()
+	opts, cleanup, err := WithProcSelfFD(nil)
+	assert.NilError(t, err)
+	defer cleanup()
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	tid := unix.Gettid()
+	cwd, err := os.Getwd()
+	assert.NilError(t, err)
+	wantErr := errors.New("callback failed")
+	err = withXattrPath(root, "parent/file", opts.internalOptions, func(path string) error {
+		if unix.Gettid() == tid {
+			return errors.New("xattrs reused a shared thread")
+		}
+		if err := os.WriteFile(path, []byte("value"), 0o600); err != nil {
+			return err
+		}
+		return wantErr
+	})
+	assert.ErrorIs(t, err, wantErr)
+	got, err := os.Getwd()
+	assert.NilError(t, err)
+	assert.Equal(t, got, cwd)
+	data, err := os.ReadFile(filepath.Join(dest, "parent", "file"))
+	assert.NilError(t, err)
+	assert.Equal(t, string(data), "value")
 }
