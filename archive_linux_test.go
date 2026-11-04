@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/moby/go-archive/internal/unshare"
 	"github.com/moby/sys/userns"
 	"golang.org/x/sys/unix"
 	"gotest.tools/v3/assert"
@@ -86,10 +87,33 @@ func TestApplyXattrsKeepsErrors(t *testing.T) {
 		assert.Assert(t, is.Contains(err.Error(), `entry "file"`))
 		_, err = applyXattrs(root, "missing/file", map[string]string{paxSchilyXattr + "user.archive": "value"}, bestEffort, nil)
 		assert.ErrorIs(t, err, os.ErrNotExist)
+		assert.ErrorContains(t, err, `entry "missing/file"`)
 	}
 	// Headers without xattrs must not resolve an xattr destination.
 	_, err = applyXattrs(root, "missing/file", map[string]string{"unrelated": "value"}, false, nil)
 	assert.NilError(t, err)
+}
+
+func TestApplyXattrsIsolationError(t *testing.T) {
+	// Run in a restricted container to exercise an actual unshare failure.
+	err := unshare.Go(unix.CLONE_FS, nil, nil)
+	skip.If(t, err == nil, "requires unshare(CLONE_FS) to be blocked")
+	assert.ErrorIs(t, err, unix.EPERM)
+	dest := t.TempDir()
+	assert.NilError(t, os.Mkdir(filepath.Join(dest, "dir"), 0o755))
+	assert.NilError(t, os.WriteFile(filepath.Join(dest, "dir", "file"), nil, 0o600))
+	root, err := os.OpenRoot(dest)
+	assert.NilError(t, err)
+	defer root.Close()
+	opts, cleanup, err := WithProcSelfFD(nil)
+	assert.NilError(t, err)
+	defer cleanup()
+	for _, bestEffort := range []bool{false, true} {
+		ignored, err := applyXattrs(root, "dir/file", map[string]string{paxSchilyXattr + "user.archive": "value"}, bestEffort, opts.internalOptions)
+		assert.ErrorIs(t, err, unix.EPERM)
+		assert.ErrorContains(t, err, `entry "dir/file": unshare:`)
+		assert.Equal(t, len(ignored), 0)
+	}
 }
 
 func TestApplyXattrsAfterRootRename(t *testing.T) {
