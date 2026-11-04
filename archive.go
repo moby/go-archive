@@ -732,12 +732,9 @@ func applyXattrs(root *os.Root, name string, records map[string]string, bestEffo
 					continue
 				}
 				if err := lsetxattr(path, attr, []byte(value), 0); err != nil {
-					// Keep the archive entry visible even when the syscall uses
-					// a procfd path or an isolated thread's relative basename.
-					err = fmt.Errorf("entry %q: %w", name, err)
 					if bestEffort && errors.Is(err, syscall.ENOTSUP) || errors.Is(err, syscall.EPERM) {
 						// EPERM also occurs in restricted user namespaces.
-						ignored = append(ignored, err.Error())
+						ignored = append(ignored, fmt.Sprintf("entry %q: %v", name, err))
 						continue
 					}
 					return err
@@ -745,6 +742,10 @@ func applyXattrs(root *os.Root, name string, records map[string]string, bestEffo
 			}
 			return nil
 		})
+		if err != nil {
+			// Include the entry for both xattr and path or isolation errors.
+			err = fmt.Errorf("entry %q: %w", name, err)
+		}
 		return ignored, err
 	}
 	return nil, nil
