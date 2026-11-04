@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/tonistiigi/fsutil"
 )
 
 // longPathPrefix is the longpath prefix for Windows file paths.
@@ -48,16 +51,37 @@ func getInodeFromStat(stat any) (uint64, error) {
 
 // handleTarTypeBlockCharFifo is an OS-specific helper function used by
 // createTarFile to handle the following types of header: Block; Char; Fifo
-func handleTarTypeBlockCharFifo(root *os.Root, hdr *tar.Header, path string) error {
+func handleTarTypeBlockCharFifo(root *os.Root, entry *fsutil.RootEntry, hdr *tar.Header, path string) error {
 	return nil
 }
 
 // handleLChmod is a no-op on Windows because chmod is not supported.
-func handleLChmod(root *os.Root, dstPath string, hardlinkTarget string, hdr *tar.Header, hdrInfo os.FileInfo, opts any) error {
+func handleLChmod(root *os.Root, entry *fsutil.RootEntry, hardlinkTarget string, hdr *tar.Header, hdrInfo os.FileInfo, opts any) error {
 	return nil
 }
 
 func getFileUIDGID(stat any) (int, int, error) {
 	// no notion of file ownership mapping yet on Windows
 	return 0, 0, nil
+}
+
+func openRootEntryFile(root *os.Root, entry *fsutil.RootEntry, path string, flag int, mode os.FileMode) (*os.File, error) {
+	if _, err := entry.Parent(); err != nil {
+		return nil, err
+	}
+	return root.OpenFile(path, flag, mode)
+}
+
+func chtimesRootEntry(root *os.Root, entry *fsutil.RootEntry, path string, atime, mtime time.Time) error {
+	if _, err := entry.Parent(); err != nil {
+		return err
+	}
+	return chtimes(root, path, atime, mtime)
+}
+
+func lchtimesRootEntry(root *os.Root, entry *fsutil.RootEntry, path string, atime, mtime time.Time) error {
+	if _, err := entry.Parent(); err != nil {
+		return err
+	}
+	return lchtimes(root, path, atime, mtime)
 }
