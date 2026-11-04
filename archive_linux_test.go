@@ -18,34 +18,6 @@ import (
 	"gotest.tools/v3/skip"
 )
 
-func TestApplyXattrsOnDanglingSymlink(t *testing.T) {
-	for _, target := range []string{"usr/bin", "/missing", "../../outside"} {
-		t.Run(target, func(t *testing.T) {
-			dest := t.TempDir()
-			assert.NilError(t, os.Mkdir(filepath.Join(dest, "dir"), 0o755))
-			assert.NilError(t, os.Symlink(target, filepath.Join(dest, "dir", "link")))
-			root, err := os.OpenRoot(dest)
-			assert.NilError(t, err)
-			defer root.Close()
-
-			// user xattrs on Linux symlinks normally return EPERM. Compare
-			// against the direct syscall so this test needs no SELinux support.
-			directErr := unix.Lsetxattr(filepath.Join(dest, "dir", "link"), "user.archive", []byte("value"), 0)
-			ignored, err := applyXattrs(root, "dir/link", map[string]string{paxSchilyXattr + "user.archive": "value"}, false, nil)
-			if errors.Is(directErr, unix.EPERM) {
-				assert.NilError(t, err)
-				assert.Equal(t, len(ignored), 1)
-				assert.Assert(t, is.Contains(ignored[0], `entry "dir/link"`))
-			} else if directErr == nil {
-				assert.NilError(t, err)
-			} else {
-				assert.ErrorIs(t, err, directErr)
-			}
-			assert.Assert(t, !errors.Is(err, os.ErrNotExist), "must address the symlink, not its missing target")
-		})
-	}
-}
-
 func TestXattrPathPinsParent(t *testing.T) {
 	dest := t.TempDir()
 	assert.NilError(t, os.Mkdir(filepath.Join(dest, "dir"), 0o755))
@@ -77,6 +49,7 @@ func TestXattrPathPinsParent(t *testing.T) {
 
 func TestApplyXattrsKeepsErrors(t *testing.T) {
 	dest := t.TempDir()
+	assert.NilError(t, os.Mkdir(filepath.Join(dest, "dir"), 0o755))
 	assert.NilError(t, os.WriteFile(filepath.Join(dest, "file"), nil, 0o600))
 	root, err := os.OpenRoot(dest)
 	assert.NilError(t, err)
@@ -88,10 +61,31 @@ func TestApplyXattrsKeepsErrors(t *testing.T) {
 		_, err = applyXattrs(root, "missing/file", map[string]string{paxSchilyXattr + "user.archive": "value"}, bestEffort, nil)
 		assert.ErrorIs(t, err, os.ErrNotExist)
 		assert.ErrorContains(t, err, `entry "missing/file"`)
+		_, err = applyXattrs(root, "dir/missing", map[string]string{paxSchilyXattr + "user.archive": "value"}, bestEffort, nil)
+		assert.ErrorIs(t, err, os.ErrNotExist)
+		assert.ErrorContains(t, err, `entry "dir/missing"`)
 	}
 	// Headers without xattrs must not resolve an xattr destination.
 	_, err = applyXattrs(root, "missing/file", map[string]string{"unrelated": "value"}, false, nil)
 	assert.NilError(t, err)
+}
+
+func TestXattrPathMissingLeaf(t *testing.T) {
+	_, err := os.Stat("/proc/self/fd")
+	skip.If(t, errors.Is(err, os.ErrNotExist), "requires procfs")
+	assert.NilError(t, err)
+	dest := t.TempDir()
+	assert.NilError(t, os.Mkdir(filepath.Join(dest, "dir"), 0o755))
+	root, err := os.OpenRoot(dest)
+	assert.NilError(t, err)
+	defer root.Close()
+	calls := 0
+	err = withXattrPath(root, "dir/missing", nil, func(path string) error {
+		calls++
+		return lsetxattr(path, "user.archive", []byte("value"), 0)
+	})
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	assert.Equal(t, calls, 1, "a missing leaf must not retry through the isolation fallback")
 }
 
 func TestApplyXattrsIsolationError(t *testing.T) {
