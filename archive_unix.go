@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -119,11 +120,15 @@ func chmodNoSymlink(root *os.Root, name string, mode os.FileMode, opts *archiveo
 
 	base := filepath.Base(name)
 	perm := fileModeToPerm(mode)
-	// #nosec G115 -- ignore integer overflow conversion for parent.Fd
-	if err := unix.Fchmodat(int(parent.Fd()), base, perm, unix.AT_SYMLINK_NOFOLLOW); err == nil {
-		return nil
-	} else if !errors.Is(err, syscall.EOPNOTSUPP) {
-		return &os.PathError{Op: "fchmodat2", Path: name, Err: err}
+	// Android app seccomp policies may kill the process on fchmodat2 instead
+	// of returning an error, so use the fallback without probing it.
+	if runtime.GOOS != "android" {
+		// #nosec G115 -- ignore integer overflow conversion for parent.Fd
+		if err := unix.Fchmodat(int(parent.Fd()), base, perm, unix.AT_SYMLINK_NOFOLLOW); err == nil {
+			return nil
+		} else if !errors.Is(err, syscall.EOPNOTSUPP) {
+			return &os.PathError{Op: "fchmodat2", Path: name, Err: err}
+		}
 	}
 
 	// Fallback for systems that cannot perform fchmodat with AT_SYMLINK_NOFOLLOW.
