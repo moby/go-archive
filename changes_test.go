@@ -1,12 +1,14 @@
 package archive
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -134,6 +136,70 @@ func provisionSampleDir(t *testing.T, rootPath string, files []FileData) {
 			err := chtimes(root, name, now, now)
 			assert.NilError(t, err)
 		}
+	}
+}
+
+type cancelAfterErrCalls struct {
+	context.Context
+	cancel   context.CancelFunc
+	calls    atomic.Int32
+	cancelAt int32
+}
+
+func (ctx *cancelAfterErrCalls) Err() error {
+	if ctx.calls.Add(1) >= ctx.cancelAt {
+		ctx.cancel()
+	}
+	return ctx.Context.Err()
+}
+
+func TestChangesDirsContextCanceledDuringWalk(t *testing.T) {
+	oldDir := t.TempDir()
+	newDir := t.TempDir()
+	for i := 0; i < 20; i++ {
+		name := "entry-" + string(rune('A'+i))
+		if err := os.WriteFile(filepath.Join(newDir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	baseCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx := &cancelAfterErrCalls{Context: baseCtx, cancel: cancel, cancelAt: 8}
+	_, err := ChangesDirsContext(ctx, newDir, oldDir)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestFileInfoChangesContextCanceled(t *testing.T) {
+	root := newRootFileInfo()
+	for i := 0; i < 20; i++ {
+		name := "entry-" + string(rune('A'+i))
+		root.children[name] = &FileInfo{
+			name:     name,
+			children: make(map[string]*FileInfo),
+			parent:   root,
+		}
+	}
+
+	baseCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx := &cancelAfterErrCalls{Context: baseCtx, cancel: cancel, cancelAt: 3}
+	_, err := root.changes(ctx, newRootFileInfo())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestChangesDirsContextAlreadyCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	dir := t.TempDir()
+	_, err := ChangesDirsContext(ctx, filepath.Join(dir, "missing-new"), filepath.Join(dir, "missing-old"))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }
 
