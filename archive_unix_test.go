@@ -61,6 +61,49 @@ func TestChmodTarEntry(t *testing.T) {
 	}
 }
 
+// TestUnpackPermissions also exercises the chmod fallback in Android app
+// processes, where probing fchmodat2 can terminate the process with SIGSYS.
+func TestUnpackPermissions(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, hdr := range []tar.Header{
+		{Name: "executable", Typeflag: tar.TypeReg, Mode: 0o755},
+		{Name: "write-only", Typeflag: tar.TypeReg, Mode: 0o200},
+		{Name: "sticky", Typeflag: tar.TypeDir, Mode: 0o1777},
+		{Name: "symlink", Typeflag: tar.TypeSymlink, Linkname: "target", Mode: 0o777},
+	} {
+		assert.NilError(t, tw.WriteHeader(&hdr))
+	}
+	assert.NilError(t, tw.Close())
+
+	for _, layer := range []bool{false, true} {
+		t.Run(fmt.Sprintf("layer=%t", layer), func(t *testing.T) {
+			dest := t.TempDir()
+			assert.NilError(t, os.WriteFile(filepath.Join(dest, "target"), nil, 0o600))
+			opts := &TarOptions{NoLchown: true}
+			if layer {
+				_, err := ApplyUncompressedLayer(dest, bytes.NewReader(buf.Bytes()), opts)
+				assert.NilError(t, err)
+			} else {
+				assert.NilError(t, UntarUncompressed(bytes.NewReader(buf.Bytes()), dest, opts))
+			}
+			for name, mode := range map[string]os.FileMode{
+				"executable": 0o755,
+				"write-only": 0o200,
+				"sticky":     os.ModeDir | os.ModeSticky | 0o777,
+				"target":     0o600,
+			} {
+				fi, err := os.Lstat(filepath.Join(dest, name))
+				assert.NilError(t, err)
+				assert.Equal(t, fi.Mode(), mode, "path: %s", name)
+			}
+			target, err := os.Readlink(filepath.Join(dest, "symlink"))
+			assert.NilError(t, err)
+			assert.Equal(t, target, "target")
+		})
+	}
+}
+
 // TestImpliedDirectoryPermissions ensures that directories implied by paths in the tar file, but without their own
 // header entries are created recursively with the default mode (permissions) stored in ImpliedDirectoryMode. This test
 // also verifies that the permissions of explicit entries are respected, independent of the process umask.
